@@ -1,0 +1,80 @@
+<html>
+	<head>
+		<script>
+			function bubbleSort(arr) {
+            	if(!arr) {
+            		return;
+            	}
+            	var len = arr.length;
+            	for (var i =0; i < len; i ++) {
+            		var index = i;
+            		for (var j = i + 1; j < len; j++) {
+            			if (arr[index] > arr[j]) {
+            				index = j;
+            			}
+            		}
+            		if (index != i) {
+            			var temp = arr[i];
+            			arr[i] = arr[index];
+            			arr[index] = temp;
+            		}
+            	}
+            }
+
+
+            function bubbleSort2(arr){
+            	if (!arr) {
+            		return;
+            	}
+				
+            	var start = 0;
+            	var end = arr.length - 1;
+            	
+            	while(start < end) {
+            		var maxIndex = start;
+            		var minIndex = start;
+            		for (var i = start + 1; i <= end; i++) {
+            			if (arr[minIndex] > arr[i]) {
+            				minIndex = i;
+            			}
+            			if (arr[maxIndex] < arr[i]) {
+            				maxIndex = i;
+            			}
+            		} 
+
+            		if (minIndex != start) {
+            			change(arr, minIndex, start); 
+            		}
+            		if (maxIndex != end  && maxIndex != start && minIndex != end) {
+            			change(arr, maxIndex, end); 
+            		}
+            		start ++;
+            		end --;
+            	}
+
+            }
+
+            function change(arr, i, j) { 
+    			var temp = arr[i];
+    			arr[i] = arr[j];
+    			arr[j] = temp; 
+            }
+            var arr= [8,9,2,3,21,2,8,43,21,12];
+            var newArray = arr.slice();
+
+            bubbleSort(arr);
+            arr.forEach(function(y){
+            	console.log(y);
+            });
+            
+
+			console.log("     ===sort 2===     ");
+
+			bubbleSort2(newArray);
+			newArray.forEach(function(y){
+            	console.log(y);
+            });
+
+		</script>
+	</head>
+</html>
