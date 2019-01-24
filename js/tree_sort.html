@@ -1,0 +1,123 @@
+<html>
+	<head>
+		<script>
+			function BinaryTree(key) {
+            	root = null;
+                
+                var Node = function(key) {
+                	this.key = key;
+                    this.left = null;
+                    this.right = null;
+                };
+                
+                var insertNode = function(node, newNode) {
+                	// compare with the old node
+                	if (newNode.key < node.key) {
+                    	if (node.left == null) {
+                        	node.left = newNode;
+                        } else {
+                        	insertNode(node.left, newNode);
+                        }
+                    } else {
+                    	if (node.right == null) {
+                        	node.right = newNode;
+                        } else {
+                        	insertNode(node.right, newNode);
+                        }
+                    }
+                };
+                
+                this.insert = function(key){
+                	var newNode = new Node(key);
+                    if (root == null) {
+                    	root = newNode;
+                    } else {
+                    	insertNode(root, newNode);
+                    }
+                };
+
+                var inOrderTraverseNode = function(node, callback){
+                    if (node != null) {
+                        inOrderTraverseNode(node.left, callback);
+                        callback(node.key);
+                        inOrderTraverseNode(node.right, callback);
+                    }
+                };
+                
+                this.inOrderTraverseNode = function(callback) {
+                    inOrderTraverseNode(root, callback);
+                };
+
+                var midLefRightTraverse = function(node, callback) {
+                    if (node != null) {
+                        callback(node.key); 
+                        midLefRightTraverse(node.left, callback);
+                        midLefRightTraverse(node.right, callback); 
+                    }
+                };
+                this.midLefRightTraverse = function(callback){
+                    midLefRightTraverse(root, callback);
+                };
+
+
+                var rightLeftMidTraverse = function(node, callback) {
+                    if (node != null) {
+                        rightLeftMidTraverse(node.right, callback); 
+                        rightLeftMidTraverse(node.left, callback);
+                        callback(node.key); 
+                        
+                    }
+                };
+                // function: right left mid
+                this.rightLeftMidTraverse = function(callback){
+                    rightLeftMidTraverse(root, callback);
+                };
+
+                var minNode = function(node){
+                    if (node) {
+                        if(node && node.left != null) {
+                            node = node.left;
+                        }
+                        return node.key;
+                    }
+                    return null;
+                }
+                this.min = function(){
+                    return minNode(root);
+                }
+
+                var maxNode = function(node) {
+                    if (node) {
+                        while(node && node.right != null){
+                            node = node.right;
+                        }
+                        return node.key;
+                    }
+                    return null;
+                }
+                this.max = function(){
+                    return  maxNode(root);
+                }
+
+            }
+
+        	var nodes = [8,3,4,,5,6,34,7,7,78];
+            var binaryTree = new BinaryTree();
+            nodes.forEach(function(key){
+            	binaryTree.insert(key);
+            });
+            
+            var callback = function(key){
+            	console.log(key);
+        		alert(key);
+            }
+           /* binaryTree.inOrderTraverseNode(callback);
+            binaryTree.midLefRightTraverse(callback);
+            binaryTree.rightLeftMidTraverse(callback);*/
+
+            console.log(binaryTree.min());
+            console.log(binaryTree.max());
+
+		</script>
+	</head>
+</html>
