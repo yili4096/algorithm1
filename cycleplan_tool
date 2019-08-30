@@ -1,0 +1,73 @@
+package veeva.htmlreport;
+
+import java.awt.Color;
+import java.awt.Dimension;
+import java.awt.FlowLayout;
+import java.awt.Font;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
+
+import javax.swing.JButton;
+import javax.swing.JFrame;
+import javax.swing.JPanel;
+import javax.swing.JScrollPane;
+import javax.swing.JTextArea;
+
+/**
+ * 
+ * 采取一步一步进行引导操作
+ *
+ */
+public class CallPlanningSummary {
+
+	final static String newline = "\n";
+	static JTextArea jTextArea = new JTextArea("请输入内容", 20, 78);
+
+	public static void main(String[] args) {
+
+		JFrame jFrame = new JFrame("CallPlanning Summary");
+		JPanel jPanel = new JPanel();
+
+		jTextArea.setLineWrap(true); // 设置文本域中的文本为自动换行
+		jTextArea.setForeground(Color.BLACK);
+		jTextArea.setFont(new Font("宋体", Font.LAYOUT_LEFT_TO_RIGHT, 12));
+		jTextArea.setBackground(Color.YELLOW);
+		JScrollPane jScrollPane = new JScrollPane(jTextArea);
+		Dimension size = jTextArea.getPreferredSize();
+		jScrollPane.setBounds(110, 90, size.width, size.height);
+		jPanel.add(jScrollPane); //// 将JScrollPane添加到JPanel容器中
+
+		jFrame.setBackground(Color.LIGHT_GRAY);
+		jFrame.setSize(400, 200);
+		jFrame.setVisible(true);
+
+		JButton btn1 = new JButton("点击执行"); // 创建按钮
+		append("请确认已导入cyclePlan.csv");
+
+		jPanel.add(btn1); // 面板中添加按钮
+		jFrame.add(jPanel);
+
+		btn1.addActionListener(new ActionListener() {
+			public void actionPerformed(ActionEvent e) {
+				append("按钮事件如此简单");
+				btn1.setText("执行莎莎");
+			}
+		});
+
+		// 向JPanel中添加FlowLayout布局管理器，将组件间的横向和纵向间隙设置为20像素
+		jPanel.setLayout(new FlowLayout(FlowLayout.LEADING, 5, 20));
+		jPanel.setBackground(Color.gray);
+		jFrame.add(jPanel);
+		jFrame.setBounds(500, 100, 500, 500);
+
+		jFrame.setVisible(true);
+		jFrame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+
+	}
+
+	private static void append(String txt) {
+		jTextArea.append(txt);
+		jTextArea.append(newline);
+	}
+
+}
