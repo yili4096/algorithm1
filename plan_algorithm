@@ -1,0 +1,2748 @@
+(function() {
+    'use strict';
+
+    /**
+     * @ngdoc overview
+     * @name territoryApp
+     * @description
+     * # territoryApp
+     *
+     * Main module of the application.
+     */
+    angular.module('territoryApp', ['ngRoute', 'ngSanitize', 'ui.bootstrap'])
+        .config(['$routeProvider', '$compileProvider', '$locationProvider', 'VEEVA_MESSAGES', AppConfig]);
+
+        function AppConfig($routeProvider, $compileProvider, $locationProvider, VEEVA_MESSAGES) {
+            $locationProvider.hashPrefix('');
+            // begin special case for windows platform
+            $compileProvider.aHrefSanitizationWhitelist(/^\s*(https?|ftp|mailto|file|ghttps?|ms-appx|x-wmapp0|ms-local-stream):/);
+            $compileProvider.imgSrcSanitizationWhitelist(/^\s*(https?|ms-local-stream|file|data):/);
+            // end special case for windows platform
+
+            var requiredMessages = VEEVA_MESSAGES;
+            var requiredMessagesList = [];
+            var translatedMessages = {};
+
+            angular.forEach(requiredMessages, function(msg) {
+                requiredMessagesList.push(msg);
+            });
+
+            var originalWhen = $routeProvider.when;
+
+            $routeProvider.when = function(path, route) {
+                route.resolve = {
+                    globalData: ['$q', 'userService', 'messageService', 'labelService', function($q, userService, messageService, labelService) {
+                        var deferred = $q.defer();
+
+                        userService.fetchCurrentUser().then(function() {
+                            if(messageService.getTranslatedMessages()) {
+                                deferred.resolve();
+                            } else {
+                                var defaultLanguageLocale = 'en_US';
+                                var languageLocale = userService.getCurrentUser().LanguageLocaleKey || defaultLanguageLocale;
+
+                                messageService.fetchTranslations(requiredMessagesList, languageLocale).then(function(rawTranslations) {
+                                    if(!rawTranslations.length) {
+                                        messageService.fetchTranslations(requiredMessagesList, defaultLanguageLocale).then(function(rawTranslations) {
+                                            setUpTranslations(rawTranslations);
+                                            deferred.resolve();
+                                        });
+                                    } else {
+                                        setUpTranslations(rawTranslations);
+                                        deferred.resolve();
+                                    }
+                                });
+                            }
+                        });
+
+                        function setUpTranslations(rawTranslations) {
+                            angular.forEach(requiredMessages, function(msg, key) {
+                                var foundTranslation = _.find(rawTranslations, function(rawMsg) {
+                                    return msg.msgName === rawMsg.Name.value && msg.msgCategory === rawMsg.Category_vod__c.value;
+                                });
+
+                                if(foundTranslation) {
+                                    translatedMessages[key] = foundTranslation.Text_vod__c.display;
+                                }
+                            });
+                            messageService.setTranslatedMessages(translatedMessages);
+                            labelService.mergeInVeevaMessages();
+                        }
+
+                        return deferred.promise;
+                    }]
+                };
+                return originalWhen.call($routeProvider, path, route);call
+            };
+
+            $routeProvider
+                .when('/goalActivity', {
+                    templateUrl: 'views/goal-activity.html',
+                    controller: 'GoalActivityController',
+                    controllerAs: 'goal'
+                })
+                .when('/submittedActivity', {
+                    templateUrl: 'views/call-activity.html',
+                    controller: 'CallActivityController',
+                    controllerAs: 'call'
+                });
+        }
+})();
+(function() {
+    'use strict';
+
+    angular.module('territoryApp')
+        .value('filterType', {
+            dateRangePicker: {
+                value: 'dateRangePicker'
+            },
+            territory: {
+                value: 'territory'
+            },
+            product: {
+                value: 'product'
+            },
+            callStatus: {
+                value: 'callStatus'
+            },
+            callType: {
+                value: 'callType'
+            }
+        });
+})();
+(function() {
+    'use strict';
+
+    angular.module('territoryApp')
+        .value('labels', {
+            accountName: {
+                value: 'accountName',
+                display: 'NAME'
+            },
+            calls: {
+                value: 'calls',
+                display: 'CALLS'
+            },
+            clmPercentage: {
+                value: 'clmPercentage',
+                display: '% CLM'
+            },
+            avgDetails: {
+                value: 'avgDetails',
+                display: 'AVG. DETAILS'
+            },
+            frequency: {
+                value: 'frequency',
+                display: 'FREQUENCY'
+            },
+            accountCount: {
+                value: 'accountCount',
+                display: '# OF ACCOUNTS'
+            },
+            accountPercentage: {
+                value: 'accountPercentage',
+                display: '% OF ACCOUNTS'
+            },
+            product: {
+                value: 'product',
+                display: 'PRODUCT'
+            },
+            accountId: {
+                value: 'accountId',
+                display: 'ACCOUNT ID'
+            },
+            emails: {
+                value: 'emails',
+                display: 'EMAILS'
+            },
+            openPercentage: {
+                value: 'openPercentage',
+                display: '% OPENED'
+            },
+            opened: {
+                value: 'opened',
+                display: 'OPENED'
+            },
+            emailTemplateName: {
+                value: 'emailTemplateName',
+                display: 'EMAIL TEMPLATE NAME'
+            },
+            emailFragmentName: {
+                value: 'emailFragmentName',
+                display: 'EMAIL FRAGMENT NAME'
+            },
+            callStatus: {
+                value: 'callStatus',
+                display: 'Call Status'
+            },
+            callType: {
+                value: 'callType',
+                display: 'Call Type'
+            }
+        });
+})();
+(function() {
+    'use strict';
+
+    angular.module('territoryApp')
+        .value('queries', {
+            calls: {
+                object: 'Call2_vod__c',
+                fields: ['Id', 'Account_vod__c', 'Call_Date_vod__c', 'Status_vod__c'],
+                where: 'Status_vod__c = _status and Account_vod__c in '
+            },
+            callDetails: {
+                object: 'Call2_Detail_vod__c',
+                fields: ['Id', 'Call2_vod__c', 'Product_vod__c'],
+                where: 'Call2_vod__c IN '
+            },
+            allTerritories: {
+                object: 'Territory',
+                fields: ['Id', 'Name','ParentTerritoryId']
+            },
+            userTerritory: {
+                object: 'UserTerritory',
+                fields: ['Id', 'TerritoryId'],
+                where: 'UserId = _userId'
+            },
+            allAccounts: {
+                object: 'Account',
+                fields: ['Id', 'Name', 'Specialty_1_vod__c'],
+				picklists: ['Specialty_1_vod__c']
+            },
+            products: {
+                object: 'Product_vod__c',
+                fields: ['Id', 'Name'],
+                where: 'Product_Type_vod__c = _productType AND Id IN '
+            },
+            productMatrixByProducts: {
+                object: 'Product_Metrics_vod__c',
+                fields: ['Id', 'Name', 'Tier_Rating_BMS_US__c', 'Products_vod__c', 'Account_vod__c']
+                // where: 'Products_vod__c in '
+            }, 
+            productMatrixes: {
+                object: 'Product_Metrics_vod__c',
+                fields: ['Id', 'Name', 'Tier_Rating_BMS_US__c', 'Products_vod__c', 'Account_vod__c'],
+                where: 'Products_vod__c in '
+            },
+            productMatrix: {
+                object: 'Product_Metrics_vod__c',
+                fields: ['Id', 'Name', 'Tier_Rating_BMS_US__c', 'Products_vod__c', 'Account_vod__c']
+            },
+            user: {
+                object: 'User',
+                fields: ['Id', 'Name', 'LanguageLocaleKey'],
+                where: 'Id = _userId'
+            },
+            userByIds: {
+                object: 'User',
+                fields: ['Id', 'Name'],
+                where: 'Id in'
+            },
+            cyclePlanByTerritory: {
+                object: 'MC_Cycle_Plan_vod__c',
+                fields: ['Id', 'Name', 'Start_Date_vod__c', 'End_Date_vod__c', 'Territory_vod__c', 'OwnerId'],
+                where: 'Territory_vod__c = _territoryName and Status_vod__c = \'In_Progress_vod\' '
+            },
+            cyclePlanByTerritoryNames: {
+                object: 'MC_Cycle_Plan_vod__c',
+                fields: ['Territory_vod__c', 'OwnerId'],
+                where: 'Territory_vod__c in '
+            },
+            cyclePlanTarget: {
+                object: 'MC_Cycle_Plan_Target_vod__c',
+                fields: ['Id', 'Cycle_Plan_vod__c', 'Target_vod__c'],
+                where: 'Cycle_Plan_vod__c in '
+            },
+            cyclePlanChannels: {
+                object: 'MC_Cycle_Plan_Channel_vod__c',
+                fields: ['Id', 'Name', 'Channel_vod__c', 'Cycle_Plan_Target_vod__c'],
+                where: 'Cycle_Plan_Target_vod__c in '
+            },
+            cycleProducts: {
+                object: 'MC_Cycle_Product_vod__c',
+                fields: ['Id', 'Product_vod__c'],  
+                where: 'Id in '
+            },
+            cycleProductAll: {
+                object: 'MC_Cycle_Product_vod__c',
+                fields: ['Id', 'Product_vod__c'] 
+            },
+            cyclePlanProducts: {
+                object: 'MC_Cycle_Plan_Product_vod__c',
+                fields: ['Id', 'Cycle_Product_vod__c', 'Cycle_Plan_Channel_vod__c', 'Activity_Goal_Edit_vod__c', 'Product_Activity_Goal_vod__c'],
+                where: 'Cycle_Plan_Channel_vod__c in '
+            }
+        });
+})();
+
+(function() {
+    'use strict';
+
+    angular.module('territoryApp')
+        .constant('VEEVA_MESSAGES', {
+            goalActivity: {msgName: 'CYCLE_PLAN_PLANNING', msgCategory: 'FieldReporting'},
+            submittedActivity: {msgName: 'CYCLE_PLAN_EXECUTION', msgCategory: 'FieldReporting'},
+            avgCallsHcp: {msgName: 'AVG_CALLS_HCP', msgCategory: 'FieldReporting'},
+            avgDetailsHcp: {msgName: 'AVG_DETAILS_HCP', msgCategory: 'FieldReporting'},
+            avgCallsDay: {msgName: 'AVG_CALLS_DAY', msgCategory: 'FieldReporting'},
+            callFrequencyTrend: {msgName: 'CALL_FREQUENCY_TREND', msgCategory: 'FieldReporting'},
+            mostFrequentActs: {msgName: 'MOST_FREQUENT_ACCOUNTS', msgCategory: 'FieldReporting'},
+            leastFrequentActs: {msgName: 'LEAST_FREQUENT_ACCOUNTS', msgCategory: 'FieldReporting'},
+            accounts: {msgName: 'ACCOUNTS', msgCategory: 'FieldReporting'},
+            accountPercentage: {msgName: 'PCT_ACCOUNTS', msgCategory: 'FieldReporting'},
+            timeOnTerritory: {msgName: 'TIME_ON_TERRITORY', msgCategory: 'FieldReporting'},
+            emailReach: {msgName: 'EMAIL_REACH', msgCategory: 'FieldReporting'},
+            emailFrequency: {msgName: 'EMAIL_FREQUENCY', msgCategory: 'FieldReporting'},
+            avgEmailsHcp: {msgName: 'AVG_EMAILS_HCP', msgCategory: 'FieldReporting'},
+            avgEmailsDay: {msgName: 'AVG_EMAILS_DAY', msgCategory: 'FieldReporting'},
+            mostSentEmails: {msgName: 'MOST_SENT_EMAILS', msgCategory: 'FieldReporting'},
+            mostOpenEmails: {msgName: 'MOST_OPEN_EMAILS', msgCategory: 'FieldReporting'},
+            emails: {msgName: 'EMAILS', msgCategory: 'FieldReporting'},
+            emailFrequencyTrend: {msgName: 'EMAIL_FREQUENCY_TREND', msgCategory: 'FieldReporting'},
+            template: {msgName: 'TEMPLATE', msgCategory: 'FieldReporting'},
+            fragment: {msgName: 'FRAGMENT', msgCategory: 'FieldReporting'},
+            reach: {msgName: 'Reach', msgCategory: 'Analytics'},
+            daily: {msgName: 'Daily', msgCategory: 'Analytics'},
+            weekly: {msgName: 'Weekly', msgCategory: 'Analytics'},
+            calls: {msgName: 'Calls', msgCategory: 'Analytics'},
+            frequency: {msgName: 'Frequency', msgCategory: 'Analytics'},
+            territory: {msgName: 'Territory', msgCategory: 'Analytics'},
+            product: {msgName: 'Product', msgCategory: 'Mysetup'},
+            all: {msgName: 'ALL', msgCategory: 'Common'}
+        });
+})();
+(function() {
+    'use strict';
+
+    angular.module('territoryApp')
+        .filter('customFilter', filterFn);
+
+    function filterFn() {
+        return function(input, orderKey) {
+            if(!angular.isArray(input) || !angular.isString(orderKey)) {
+                return input;
+            }
+
+            var asc = true;
+            if(orderKey.charAt(0) === '-') {
+                orderKey = orderKey.substr(1);
+                asc = false;
+            }
+
+            input.sort(function(a, b) {
+                if(!angular.isDefined(a[orderKey]) || !angular.isDefined(b[orderKey])) {
+                    return 0;
+
+                } else if(angular.isNumber(a[orderKey]) && angular.isNumber(b[orderKey])) {
+                    if(asc) {
+                        return numberCompare(a[orderKey], b[orderKey]);
+                    } else {
+                        return numberCompare(a[orderKey], b[orderKey]) * -1;
+                    }
+
+                } else if(angular.isString(a[orderKey]) && angular.isString(b[orderKey])) {
+                    var stringA = a[orderKey];
+                    var stringB = b[orderKey];
+
+                    // Percentage string 'xx%' comparison
+                    var percentageCapture = /([0-9]+[\.]?[0-9]+)%/;
+                    if(percentageCapture.test(stringA) && percentageCapture.test(stringB)) {
+                        var percentA = percentageCapture.exec(stringA)[1];
+                        var percentB = percentageCapture.exec(stringB)[1];
+
+                        if(asc) {
+                            return numberCompare(percentA, percentB);
+                        } else {
+                            return numberCompare(percentA, percentB) * -1;
+                        }
+
+                    }
+                    // Pure string comparison
+                    else {
+                        if(asc) {
+                            return stringA.localeCompare(stringB);
+                        } else {
+                            return stringA.localeCompare(stringB) * -1;
+                        }
+                    }
+                } else {
+                    return 0;
+                }
+            });
+
+            function numberCompare(num1, num2) {
+                num1 = parseFloat(num1);
+                num2 = parseFloat(num2);
+
+                if(num1 > num2) {
+                    return 1;
+                } else if(num1 < num2) {
+                    return -1;
+                } else {
+                    return 0;
+                }
+            }
+
+            return input;
+        };
+    }
+})();
+(function() {
+    'use strict';
+
+    angular.module('territoryApp')
+        .filter('message', ['messageService', filterFn]);
+
+    function filterFn(messageService) {
+        return function(input) {
+            if(!input) {
+                return;
+            }
+
+            return messageService.getMessage(input);
+        };
+    }
+})();
+(function() {
+    'use strict';
+
+    angular.module('territoryApp')
+        .factory('accountService', ['$q', 'endpoints', 'labelService', factoryFn]);
+
+        function factoryFn($q, endpoints, labelService) {
+            var accountService = this;
+
+            accountService.getAllAccounts = function() {
+                var deferred = $q.defer();
+				endpoints.getAllAccounts().then(function(resp1) {
+					fillInLabelTranslations(resp1.fieldLabels);
+					deferred.resolve(resp1);            
+				});
+				
+				return deferred.promise;
+            };
+
+            function fillInLabelTranslations(fieldLabels) {
+                var labelMap = _.indexBy(fieldLabels, 'name');
+                if(labelMap.Name) {
+                    labelService.setTranslation('accountName', labelMap.Name.display);
+                }
+            }
+
+            return accountService;
+        }
+})();
+
+(function() {
+    'use strict';
+
+    angular.module('territoryApp')
+        .factory('cyclePlanService', ['$q', 'endpoints', factoryFn]);
+
+        function factoryFn($q, endpoints) {
+            var cyclePlanService = this;
+            var cyclePlans = {};
+            cyclePlanService.getCyclePlanByTerritory = function(territoryName) {
+                var deferred = $q.defer();
+
+                if(territoryName) {
+                    endpoints.getCyclePlanByTerritory(territoryName).then(function(resp) {
+                        deferred.resolve(resp);
+                    });
+                }
+
+                return deferred.promise;
+            };
+    
+            cyclePlanService.getAllCyclePlans = function() {
+                var _cyclePlansData = veevaUtil.deepCopy(cyclePlans.data);
+                return _cyclePlansData || [];
+            };
+
+
+            cyclePlanService.getCyclePlanByTerritoryNames = function(territoryNames) {
+                var deferred = $q.defer();
+                if(territoryNames && angular.isArray(territoryNames) && territoryNames.length > 0) {
+                    endpoints.getCyclePlanByTerritoryNames(territoryNames).then(function(cyclePlanResp) {
+                        deferred.resolve(cyclePlanResp);
+                    });
+                }
+
+                return deferred.promise;
+            };
+            
+			
+			cyclePlanService.fetchCyclePlanTargetData = function(cyclePlanIds) {
+                var deferred = $q.defer();
+                if(cyclePlanIds && angular.isArray(cyclePlanIds) && cyclePlanIds.length > 0) {
+                    endpoints.getCyclePlanTargets(cyclePlanIds).then(function(resp1) {
+                        deferred.resolve(resp1);            
+                    });
+                }
+				
+				return deferred.promise;
+			};
+			
+			cyclePlanService.fetchCyclePlanChannels = function(cyclePlanTargetIds) {
+				var deferred = $q.defer();
+                if(cyclePlanTargetIds && angular.isArray(cyclePlanTargetIds) && cyclePlanTargetIds.length > 0) {
+                    endpoints.getCyclePlanChannels(cyclePlanTargetIds).then(function(resp) {
+                        deferred.resolve(resp);            
+                    });
+                }
+				
+				return deferred.promise;
+			};
+			
+			cyclePlanService.fetchCyclePlanProducts = function(cyclePlanChannelIds) {
+				var deferred = $q.defer();
+				if(cyclePlanChannelIds && angular.isArray(cyclePlanChannelIds) && cyclePlanChannelIds.length > 0) {
+                    endpoints.getCyclePlanProducts(cyclePlanChannelIds).then(function(resp) {
+                        deferred.resolve(resp);            
+                    });
+                }
+				
+				return deferred.promise;
+			};
+
+            return cyclePlanService;
+        }
+})();
+
+(function() {
+    'use strict';
+
+    angular.module('territoryApp')
+        .factory('cycleProductService', ['$q', 'endpoints', factoryFn]);
+
+        function factoryFn($q, endpoints) {
+            var cycleProductService = this;
+            cycleProductService.getCycleProducts = function(ids) {
+                var deferred = $q.defer();
+
+                if(ids && angular.isArray(ids)) {
+                    endpoints.getCycleProducts(ids).then(function(resp) {
+                        deferred.resolve(resp);
+                    });
+                }
+
+                return deferred.promise;
+            };
+
+            cycleProductService.cycleProductAll = function() {
+                var deferred = $q.defer();
+                endpoints.getCycleProductAll().then(function(resp) {
+                    deferred.resolve(resp);
+                });
+
+                return deferred.promise;
+            };
+
+            return cycleProductService;
+        }
+})();
+
+(function() {
+    'use strict';
+
+    angular.module('territoryApp')
+        .factory('productMatrixService', ['$q', 'endpoints', factoryFn]);
+
+        function factoryFn($q, endpoints) {
+            var productMatrixService = this;
+            productMatrixService.getProductMatrixes = function(productIds) {
+				var deferred = $q.defer();
+				endpoints.getProductMatrixes(productIds).then(function(resp1) {
+					deferred.resolve(resp1);            
+				});
+				
+				return deferred.promise;
+            };
+
+            productMatrixService.getProductMatrix = function() {
+				var deferred = $q.defer();
+				endpoints.getProductMatrix().then(function(resp1) {
+					deferred.resolve(resp1);            
+				});
+				
+				return deferred.promise;
+            };
+
+            return productMatrixService;
+        }
+})();
+
+(function() {
+    'use strict';
+
+    angular.module('territoryApp')
+        .factory('callService', ['$q', 'endpoints', 'cycleProductService', 'labelService', 'reportUtil', factoryFn]);
+
+    function factoryFn($q, endpoints, cycleProductService, labelService, reportUtil) {
+        var callService = this;
+        var calls = {};
+        var currentCyclePlan = {};
+        var veevaUtil = new VeevaUtilities();
+
+        callService.fetchCallData = function(accountIds, cyclePlan) {
+            var deferred = $q.defer();
+            currentCyclePlan = cyclePlan;
+                endpoints.getCalls('Submitted_vod', accountIds).then(function(resp) {
+                    calls = resp;
+                    if (calls.data && angular.isArray(calls.data)) {
+                        // Query products table to get product name
+                        endpoints.getCallDetails(mapCallIds()).then(function(resp2) {
+                            fillProduct(resp2.data);
+                            deferred.resolve({
+                                success: true,
+                                data: calls.data
+                            });
+                        });
+                    }
+                }, function(error) {
+                    deferred.reject({
+                        success: false,
+                        message: error
+                    });
+                });
+            
+        
+            return deferred.promise;
+        };
+
+        function mapCallIds() {
+            return _.map(calls.data, function(item) {
+                return item.Id.value;
+            });
+        }
+
+        function fillProduct(callDetails) {
+            var call2DetailMap = {};
+            angular.forEach(callDetails, function(cDetail) {
+                if(cDetail.Product_vod__c) {
+                    var call2Id = cDetail.Call2_vod__c.value;
+                    var details = call2DetailMap[call2Id];
+                    if (!details) {
+                        details = [];
+                    }
+                    details.push(cDetail);
+                    call2DetailMap[call2Id] = details;
+                }
+            });
+
+            var callsArray = [];
+            angular.forEach(calls.data, function(callItem) { 
+                if(reportUtil.callsInCyclePlanDateRange(callItem, currentCyclePlan)) {
+                    var call2Id = callItem.Id.value;
+                    var detailArray = call2DetailMap[call2Id];
+                    if (!detailArray) {
+                        callsArray.push(callItem);
+                    } else {
+                        angular.forEach(detailArray, function(detailItem) {
+                            var copiedCall = veevaUtil.copyObject(callItem);
+                            copiedCall.Product_vod__c = detailItem.Product_vod__c;
+                            callsArray.push(copiedCall);
+                        });
+                    }
+                }
+            });
+            calls.data = callsArray;
+        }
+        return callService;
+    }
+})();
+
+(function() {
+    'use strict';
+
+    angular.module('territoryApp')
+        .factory('endpoints', ['$q', 'queries', factoryFn]);
+
+    function factoryFn($q, queries) {
+        var endpoints = this;
+        var ds = window.ds;
+        var veevaUtil = new VeevaUtilities();
+
+        endpoints.getCurrentUser = function() {
+            var deferred = $q.defer();
+
+            ds.getDataForCurrentObject('User', 'Id').then(function(resp1) {
+                if(resp1.success) {
+                    var currentUser = resp1.User;
+                    var queryConfig = veevaUtil.copyObject(queries.user);
+                    queryConfig.where = queryConfig.where.replace(/_userId/, '\'' + currentUser.Id + '\'');
+
+                    ds.runQuery(queryConfig).then(function (resp2) {
+                        deferred.resolve(resp2);
+                    }, genericQueryErrorHandler(deferred));
+
+                } else {
+                    (genericQueryErrorHandler(deferred))(resp1.message);
+                }
+            });
+
+            return deferred.promise;
+        };
+
+        endpoints.getUserByIds = function(userIds) {
+            var deferred = $q.defer();
+            var queryConfig = veevaUtil.copyObject(queries.userByIds);
+            queryConfig.where += ds.getInStatement(userIds);
+
+            ds.runQuery(queryConfig).then(function (resp) {
+                deferred.resolve(resp);
+            }, genericQueryErrorHandler(deferred));
+
+            return deferred.promise;
+        };
+
+        endpoints.getCalls = function(status, accountIds) {
+            var deferred = $q.defer();
+            var queryConfig = veevaUtil.copyObject(queries.calls);
+            queryConfig.where = queryConfig.where.replace(/_status/, '\'' + status + '\'');
+
+            if(angular.isArray(accountIds)) {
+                queryConfig.where += ds.getInStatement(accountIds);
+
+                ds.runQuery(queryConfig).then(function (resp) {
+                    deferred.resolve(resp);
+                }, genericQueryErrorHandler(deferred));
+            }
+            return deferred.promise;
+        };
+
+        endpoints.getCallDetails = function(callIds) {
+            var deferred = $q.defer();
+            var queryConfig = veevaUtil.copyObject(queries.callDetails);
+            queryConfig.where += ds.getInStatement(callIds);
+
+            ds.runQuery(queryConfig).then(function (resp) {
+                deferred.resolve(resp);
+            }, genericQueryErrorHandler(deferred));
+
+            return deferred.promise;
+        };
+
+        endpoints.getAllTerritories = function() {
+            var deferred = $q.defer();
+            var queryConfig = veevaUtil.copyObject(queries.allTerritories);
+
+            ds.runQuery(queryConfig).then(function (resp) {
+                deferred.resolve(resp);
+            }, genericQueryErrorHandler(deferred));
+
+            return deferred.promise;
+        };
+
+        endpoints.getUserTerritories = function(userId) {
+            var deferred = $q.defer();
+            var queryConfig = veevaUtil.copyObject(queries.userTerritory);
+            queryConfig.where = queryConfig.where.replace(/_userId/, '\'' + userId + '\'');
+
+            ds.runQuery(queryConfig).then(function (resp) {
+                deferred.resolve(resp);
+            }, genericQueryErrorHandler(deferred));
+
+            return deferred.promise;
+        };
+
+        endpoints.getAllAccounts = function() {
+            var deferred = $q.defer();
+            var queryConfig = veevaUtil.copyObject(queries.allAccounts);
+
+            ds.runQuery(queryConfig).then(function (resp) {
+                deferred.resolve(resp);
+            }, genericQueryErrorHandler(deferred));
+
+            return deferred.promise;
+        };
+
+        endpoints.getCyclePlanByTerritory = function(territoryName) {
+            var deferred = $q.defer();
+            var queryConfig = veevaUtil.copyObject(queries.cyclePlanByTerritory);
+            queryConfig.where = queryConfig.where.replace(/_territoryName/, '\'' + territoryName + '\'');
+
+            ds.runQuery(queryConfig).then(function (resp) {
+                deferred.resolve(resp);
+            }, genericQueryErrorHandler(deferred));
+
+            return deferred.promise;
+        };
+
+        endpoints.getCyclePlanByTerritoryNames = function(territoryNames) {
+            var deferred = $q.defer();
+            var queryConfig = veevaUtil.copyObject(queries.cyclePlanByTerritoryNames);
+            queryConfig.where += ds.getInStatement(territoryNames);
+            ds.runQuery(queryConfig).then(function (resp) {
+                deferred.resolve(resp);
+            }, genericQueryErrorHandler(deferred));
+
+            return deferred.promise;
+        };
+
+        endpoints.getProductMatrixes = function(productIds) {
+            var deferred = $q.defer();
+            var queryConfig = veevaUtil.copyObject(queries.productMatrixes);
+            queryConfig.where += ds.getInStatement(productIds);
+            
+            // var queryConfig = veevaUtil.copyObject(queries.productMatrixByProducts);
+
+            ds.runQuery(queryConfig).then(function (resp) {
+                deferred.resolve(resp);
+            }, genericQueryErrorHandler(deferred));
+
+            return deferred.promise;
+        };
+		
+        endpoints.getProductMatrix = function() {
+            var deferred = $q.defer();
+            var queryConfig = veevaUtil.copyObject(queries.productMatrix);
+            ds.runQuery(queryConfig).then(function (resp) {
+                deferred.resolve(resp);
+            }, genericQueryErrorHandler(deferred));
+
+            return deferred.promise;
+        };
+
+        endpoints.getCyclePlanTargets = function(cyclePlanIds) {
+            var deferred = $q.defer();
+            var queryConfig = veevaUtil.copyObject(queries.cyclePlanTarget);
+            queryConfig.where += ds.getInStatement(cyclePlanIds);
+
+            ds.runQuery(queryConfig).then(function(resp) {
+                deferred.resolve(resp);
+            }, genericQueryErrorHandler(deferred));
+
+            return deferred.promise;
+        };
+
+        endpoints.getCyclePlanChannels = function(cyclePlanTargetIds) {
+            var deferred = $q.defer();
+            var queryConfig = veevaUtil.copyObject(queries.cyclePlanChannels);
+            queryConfig.where += ds.getInStatement(cyclePlanTargetIds);
+
+            ds.runQuery(queryConfig).then(function (resp) {
+                deferred.resolve(resp);
+            }, genericQueryErrorHandler(deferred));
+
+            return deferred.promise;
+        };
+
+        endpoints.getCyclePlanProducts = function(cyclePlanChannelIds) {
+            var deferred = $q.defer();
+            var queryConfig = veevaUtil.copyObject(queries.cyclePlanProducts);
+            queryConfig.where += ds.getInStatement(cyclePlanChannelIds);
+
+            ds.runQuery(queryConfig).then(function (resp) {
+                deferred.resolve(resp);
+            }, genericQueryErrorHandler(deferred));
+
+            return deferred.promise;
+        };
+
+        endpoints.getCycleProducts = function(ids) {
+            var deferred = $q.defer();
+            var queryConfig = veevaUtil.copyObject(queries.cycleProducts);
+            queryConfig.where += ds.getInStatement(ids);
+
+            ds.runQuery(queryConfig).then(function (resp) {
+                deferred.resolve(resp);
+            }, genericQueryErrorHandler(deferred));
+
+            return deferred.promise;
+        };
+        
+        endpoints.getCycleProductAll = function() {
+            var deferred = $q.defer();
+            var queryConfig = veevaUtil.copyObject(queries.cycleProductAll);
+
+            ds.runQuery(queryConfig).then(function (resp) {
+                deferred.resolve(resp);
+            }, genericQueryErrorHandler(deferred));
+            return deferred.promise;
+        };
+
+        endpoints.getProducts = function(productIds) {
+            var deferred = $q.defer();
+            var queryConfig = veevaUtil.copyObject(queries.products);
+            queryConfig.where = queryConfig.where.replace(/_productType/, '\'Detail\'');
+            queryConfig.where += ds.getInStatement(productIds);
+
+            ds.runQuery(queryConfig).then(function (resp) {
+                deferred.resolve(resp);
+            }, genericQueryErrorHandler(deferred));
+
+            return deferred.promise;
+        };
+
+        endpoints.getTranslations = function(msgsToGet, userLocale) {
+            var deferred = $q.defer();
+
+            ds.getVeevaMessagesWithDefault(msgsToGet, userLocale).then(function (resp) {
+                deferred.resolve(resp);
+            });
+
+            return deferred.promise;
+        };
+
+
+        /**
+         * Private functions
+         */
+        function genericQueryErrorHandler(deferred) {
+            return function(error) {
+                console.log('genericQueryErrorHandler', error);
+                deferred.reject(error);
+            };
+        }
+
+        /**
+         * Format date object to be yyyy-mm-dd
+         * @param date
+         * @returns {string}
+         */
+        function formatDateString(date) {
+            var year = date.getFullYear();
+            var month = date.getMonth() + 1 + '';
+            var day = date.getDate() + '';
+
+            if(month.length === 1) {
+                month = '0' + month;
+            }
+
+            if(day.length === 1) {
+                day = '0' + day;
+            }
+
+            return year + '-' + month + '-' + day;
+        }
+
+        return endpoints;
+    }
+})();
+
+(function() {
+    'use strict';
+
+    angular.module('territoryApp')
+        .factory('labelService', ['labels', 'messageService', factoryFn]);
+
+    function factoryFn(labels, messageService) {
+        var labelService = this;
+        var veevaUtil = new VeevaUtilities();
+        labelService.labels = veevaUtil.deepCopy(labels);
+
+        labelService.setTranslation = function(key, translation) {
+            if(labelService.labels[key]) {
+                labelService.labels[key].display = translation;
+            }
+        };
+
+        labelService.mergeInVeevaMessages = function() {
+            labelService.setTranslation('calls', messageService.getMessage('calls'));
+            labelService.setTranslation('emails', messageService.getMessage('emails'));
+            labelService.setTranslation('product', messageService.getMessage('product'));
+            labelService.setTranslation('frequency', messageService.getMessage('frequency'));
+            labelService.setTranslation('accountCount', messageService.getMessage('accounts'));
+            labelService.setTranslation('accountPercentage', messageService.getMessage('accountPercentage'));
+            labelService.setTranslation('avgDetails', messageService.getMessage('avgDetailsHcp'));
+        };
+
+        return labelService;
+    }
+})();
+
+(function() {
+    'use strict';
+
+    angular.module('territoryApp')
+        .factory('messageService', ['$q', 'endpoints', factoryFn]);
+
+    function factoryFn($q, endpoints) {
+        var messageService = this;
+        var translatedMessages = null;
+
+        messageService.fetchTranslations = function(msgsToGet, userLocale) {
+            var deferred = $q.defer();
+
+            endpoints.getTranslations(msgsToGet, userLocale).then(function(resp) {
+                deferred.resolve(resp);
+            });
+
+            return deferred.promise;
+        };
+
+        messageService.getTranslatedMessages = function() {
+            return translatedMessages;
+        };
+
+        messageService.setTranslatedMessages = function(translatedMsg) {
+            translatedMessages = translatedMsg;
+        };
+
+        messageService.getMessage = function(key) {
+            if(translatedMessages && translatedMessages[key]) {
+                return translatedMessages[key];
+            } else {
+                return key;
+            }
+        };
+
+        return messageService;
+    }
+})();
+
+(function() {
+    'use strict';
+
+    angular.module('territoryApp')
+        .factory('reportUtil', factoryFn);
+
+    function factoryFn() {
+        var reportUtil = this;
+        var DENOMINATORS = [21, 19, 21, 22, 22, 20, 22, 22, 20, 23, 18, 21];
+
+
+        /**
+         * Build on top of underscore _.sortBy function
+         * Sort the given list(array/object) based on the value of the given key
+         * @param list - Array/Object
+         * @param key - (optional) where to get the value from
+         * @param caseSensitive - (optional) set to make the sort order case sensitive
+         * @param desc - (optional) set to make the sort order descending
+         * @returns {*}
+         */
+        reportUtil.sortByValue = function(list, key, caseSensitive, desc) {
+            var result = _.sortBy(list, function(item) {
+                var value = null;
+
+                if(!key) {
+                    value = item.value;
+                } else if(item[key]) {
+                    value = item[key].value;
+                }
+
+                if(angular.isString(value) && !caseSensitive) {
+                    return value.toUpperCase();
+                } else {
+                    return value;
+                }
+            });
+
+            if(desc) {
+                result.reverse();
+            }
+
+            return result;
+        };
+
+        reportUtil.renderBarCharLabel = function(label, value) {
+            if (!label) {
+                label = "NA";
+            }
+            return label + " [" + value + "]";
+        };
+
+        reportUtil.renderBarCharPercentageLabel = function(label, value) {
+            if (!label) {
+                label = "NA";
+            }
+            if (value) {
+                value = Number(value*100).toFixed(0);
+            }
+            return label + " [" + value + "%]";
+        };
+
+        /**
+         * Emma
+         * Get Start Date and End Date from MC_CYCLE_PLAN. Based on the Months, get the sum of CPD Denominator.
+         * This Function should return the summation of CPD Denominator.
+         */
+        reportUtil.sumDenominator = function(cyclePlan) {
+            var sum = 0;
+            if (cyclePlan) {
+                var startMonth = (new Date(cyclePlan.Start_Date_vod__c.value)).getMonth();
+                var endMonth = (new Date(cyclePlan.End_Date_vod__c.value)).getMonth();
+                for (var i = startMonth; i <= endMonth; i ++) {
+                    sum += DENOMINATORS[i];
+                }
+            }
+            return sum;
+        };
+
+        reportUtil.getUserTerritories = function(userTerritories, allTerritories, allCyclePlans, users) {
+            var territories = [];
+            angular.forEach(userTerritories, function(uTerritory) {
+                if(uTerritory.TerritoryId) {
+                    var userTerritoryId = uTerritory.TerritoryId.value;
+                    var foundTerritory = _.find(allTerritories, function(territory) {
+                        return territory.Id && territory.Id.value === userTerritoryId
+                    });
+
+                    if(foundTerritory) {
+                        territories.push(foundTerritory);
+                    }
+                }
+            });
+
+            angular.forEach(userTerritories, function(uTerritory) {
+                if(uTerritory.TerritoryId) {
+                    var userTerritoryId = uTerritory.TerritoryId.value;
+                    angular.forEach(allTerritories, function(eachTerritory) {
+                        if(eachTerritory.ParentTerritoryId && eachTerritory.ParentTerritoryId.value === userTerritoryId) {
+                            territories.push(eachTerritory);
+                        }
+                    });
+                }
+            });
+            
+            return territories;
+        }
+
+        reportUtil.sumGoal = function(cyclePlanProducts) {
+            var goal = 0;
+            if (cyclePlanProducts && angular.isArray(cyclePlanProducts)) {
+                angular.forEach(cyclePlanProducts, function(cyclePlanProduct) {
+                    goal += reportUtil.getGoal(cyclePlanProduct);
+                });
+            }
+            return goal;
+        }
+
+        reportUtil.getGoal = function(cyclePlanProduct) {
+            var goal = 0;
+            if (cyclePlanProduct && cyclePlanProduct.Activity_Goal_Edit_vod__c.value && !_.isNull(cyclePlanProduct.Activity_Goal_Edit_vod__c.value) && _.isNumber(cyclePlanProduct.Activity_Goal_Edit_vod__c.value)) {
+                goal = cyclePlanProduct.Activity_Goal_Edit_vod__c.value;
+            } else if (cyclePlanProduct && cyclePlanProduct.Product_Activity_Goal_vod__c.value && !_.isNull(cyclePlanProduct.Product_Activity_Goal_vod__c.value) && _.isNumber(cyclePlanProduct.Product_Activity_Goal_vod__c.value)) {
+                goal = cyclePlanProduct.Product_Activity_Goal_vod__c.value;
+            }
+            return goal;
+        }
+
+        reportUtil.resetNumeratorAndDenominator = function(numerator, denominator, minNumerator) {
+            var arr = [1, 1] ;
+            if (denominator != 0) {
+                if (!numerator || typeof numerator === "undefined") {
+                    numerator = 0;
+                }
+                arr = [numerator, denominator];
+            }
+            if (minNumerator && minNumerator === 1) {
+                arr = [Math.min(numerator, denominator), denominator];
+            }
+            return arr;
+        }
+
+        reportUtil.llg = function(lebel, item) {
+            return ("\n ").concat(lebel).concat(": \n ").concat(JSON.stringify(item));
+        }
+
+        reportUtil.callsInCyclePlanDateRange = function(aCall, cyclePlan) {
+            var result = false;
+            if (aCall && cyclePlan && cyclePlan.Start_Date_vod__c && cyclePlan.Start_Date_vod__c.value && cyclePlan.End_Date_vod__c && cyclePlan.End_Date_vod__c.value) {
+                var date1 = cyclePlan.Start_Date_vod__c.value;
+                var date2 = cyclePlan.End_Date_vod__c.value;
+
+                if(aCall.Call_Date_vod__c && angular.isDate(aCall.Call_Date_vod__c.value)) {
+                    result = aCall.Call_Date_vod__c.value.valueOf() >= date1.valueOf() && aCall.Call_Date_vod__c.value.valueOf() <= date2.valueOf();
+                }
+            }
+            return result;
+        }
+
+        return reportUtil;
+    }
+})();
+
+(function() {
+    'use strict';
+
+    angular.module('territoryApp')
+        .factory('territoryService', ['$q', 'endpoints', factoryFn]);
+
+    function factoryFn($q, endpoints) {
+        var territoryService = this;
+        var territories = {};
+        var userTerritories = {};
+        var veevaUtil = new VeevaUtilities();
+
+        territoryService.fetchAllTerritories = function() {
+            var deferred = $q.defer();
+
+            if(territories.data) {
+                var _territories = veevaUtil.deepCopy(territories);
+                deferred.resolve(_territories);
+            } else {
+                endpoints.getAllTerritories().then(function(resp) {
+                    console.log(resp);
+                    territories = resp;
+                    deferred.resolve(territories);
+                });
+            }
+
+            return deferred.promise;
+        };
+
+        territoryService.fetchUserTerritories = function(userId) {
+            var deferred = $q.defer();
+
+            if(userTerritories.data) {
+                var _userTerritories = veevaUtil.deepCopy(userTerritories);
+                deferred.resolve(_userTerritories);
+
+            } else if(angular.isString(userId)) {
+                endpoints.getUserTerritories(userId).then(function(resp) {
+                    console.log(resp);
+                    userTerritories = resp;
+                    deferred.resolve(userTerritories);
+                });
+            }
+
+            return deferred.promise;
+        };
+
+        territoryService.getAllTerritories = function() {
+            var _territoriesData = veevaUtil.deepCopy(territories.data);
+            return _territoriesData || [];
+        };
+
+        territoryService.getUserTerritories = function() {
+            var _userTerritoriesData = veevaUtil.deepCopy(userTerritories.data);
+            return _userTerritoriesData || [];
+        };
+
+        return territoryService;
+    }
+})();
+
+(function() {
+    'use strict';
+
+    angular.module('territoryApp')
+        .factory('userService', ['$q', 'endpoints', factoryFn]);
+
+    function factoryFn($q, endpoints) {
+        var userService = this;
+        var currentUser = null;
+
+        userService.fetchCurrentUser = function() {
+            var deferred = $q.defer();
+
+            if(!currentUser) {
+                endpoints.getCurrentUser().then(function(resp) {
+                    console.log(resp);
+                    currentUser = {};
+
+                    if(resp.data && resp.data[0]) {
+                        var rawUserData = resp.data[0];
+                        for(var key in rawUserData) {
+                            currentUser[key] = rawUserData[key].value;
+                        }
+                    }
+                    deferred.resolve(currentUser);
+                });
+
+            } else {
+                deferred.resolve(currentUser);
+            }
+
+            return deferred.promise;
+        };
+
+        userService.getCurrentUser = function() {
+            return currentUser;
+        };
+
+        userService.fetchUserByIds = function(userIds) {
+            var deferred = $q.defer();
+            endpoints.getUserByIds(userIds).then(function(resp) {
+                deferred.resolve(resp);
+            });
+            return deferred.promise;
+        };
+
+        return userService;
+    }
+})();
+
+(function() {
+    'use strict';
+
+    angular.module('territoryApp')
+        .directive('barChart', directiveFn);
+
+    function directiveFn() {
+        var link = function(scope, element) {
+            if(!scope.width) {
+                scope.width = '100%';
+            }
+            element.css({
+                width: scope.width
+            });
+
+            var chartData = {
+                labels: scope.labels,
+                datasets: []
+            };
+
+            var chartOptions = {
+                responsive: false,
+                scales: {
+                    xAxes: [{
+                        // gridLines: {
+                        //     display: false
+                        // },
+                        stacked: true,
+                        beginAtZero: true,
+                        scaleLabel: {
+                            labelString: 'Month'
+                        },
+                        ticks: {
+                            stepSize: 1,
+                            min: 0,
+                            autoSkip: false
+                        }
+                    }],
+                    yAxes: [{
+                        stacked: true
+                    }]
+                },
+                legend: false,
+                events: []
+            };
+
+            var gradient = element[0].getContext("2d").createLinearGradient(0, 0, 0, 400);
+            gradient.addColorStop(0, '#008fd2');
+            gradient.addColorStop(1, '#5ac8fa');
+
+
+            // Add dynamic data
+            if(scope.data && scope.data[1]) {
+                chartData.datasets.unshift({
+                    type: 'bar',
+                    backgroundColor: gradient,
+                    data: scope.data[1]
+                });
+            }
+            if(scope.data && scope.data[0]) {
+                chartData.datasets.unshift({
+                    type: 'line',
+                    fill: false,
+                    borderColor: 'rgba(207,219,0,0)',
+                    pointStyle: 'line',
+                    data: scope.data[0]
+                });
+            }
+
+            var ctx = document.getElementById("barChart");
+            var barChart = new Chart(ctx, {
+                type: 'bar',
+                data: chartData,
+                options: chartOptions
+            });
+
+            scope.$on('updateBarChart', function() {
+                barChart.data.labels = scope.labels;
+                barChart.data.datasets[0].data = scope.data[0];
+                barChart.data.datasets[1].data = scope.data[1];
+                barChart.update();
+            });
+        };
+
+        return {
+            template: '<canvas id="barChart"></canvas>',
+            restrict: 'E',
+            replace: true,
+            scope: {
+                data: '=',
+                labels: '=',
+                width: '@'
+            },
+            link: link
+        };
+    }
+})();
+
+(function() {
+    'use strict';
+
+    angular.module('territoryApp')
+        .directive('barChart2', directiveFn);
+
+    function directiveFn() {
+        var link = function(scope, element) {
+            if(!scope.width) {
+                scope.width = '100%';
+            }
+            element.css({
+                width: scope.width
+            });
+
+            var chartData = {
+                labels: scope.labels,
+                datasets: []
+            };
+
+            var chartOptions = {
+                responsive: false,
+                scales: {
+                    xAxes: [{
+                        // gridLines: {
+                        //     display: false
+                        // },
+                        stacked: true,
+                        beginAtZero: true,
+                        scaleLabel: {
+                            labelString: 'label'
+                        },
+                        ticks: {
+                            stepSize: 1,
+                            min: 0,
+                            autoSkip: false
+                        }
+                    }],
+                    yAxes: [{
+                        stacked: true
+                    }]
+                },
+                legend: false,
+                events: []
+            };
+
+            var gradient = element[0].getContext("2d").createLinearGradient(0, 0, 0, 400);
+            gradient.addColorStop(0, '#598cf9');
+            gradient.addColorStop(1, '#acc5f9');
+
+            if(scope.data && scope.data[1]) {
+                chartData.datasets.unshift({
+                    type: 'bar',
+                    backgroundColor: gradient,
+                    data: scope.data[1]
+                });
+            }
+            if(scope.data && scope.data[0]) {
+                chartData.datasets.unshift({
+                    type: 'line',
+                    fill: false,
+                    borderColor: 'rgba(207,219,0,0)',
+                    pointStyle: 'line',
+                    data: scope.data[0]
+                });
+            }
+
+            var ctx = document.getElementById("barChart2");
+            var barChart = new Chart(ctx, {
+                type: 'bar',
+                data: chartData,
+                options: chartOptions
+            });
+
+            scope.$on('updateBarChart2', function() {
+                barChart.data.labels = scope.labels;
+                barChart.data.datasets[0].data = scope.data[0];
+                barChart.data.datasets[1].data = scope.data[1];
+                barChart.update();
+            });
+        };
+
+        return {
+            template: '<canvas id="barChart2"></canvas>',
+            restrict: 'E',
+            replace: true,
+            scope: {
+                data: '=',
+                labels: '=',
+                width: '@'
+            },
+            link: link
+        };
+    }
+})();
+
+(function() {
+    'use strict';
+
+    angular.module('territoryApp')
+        .directive('doughnutChart', directiveFn);
+
+    function directiveFn() {
+        return {
+            template: '<canvas></canvas>',
+            restrict: 'E',
+            replace: true,
+            scope: {
+                color1: '@',
+                color2: '@',
+                data1: '=',
+                data2: '='
+            },
+            link: function(scope, element, attrs) {
+                var gradient = element[0].getContext("2d").createLinearGradient(0, 0, 0, 400);
+                gradient.addColorStop(0, scope.color1);
+                gradient.addColorStop(1, scope.color2);
+
+                var data = {
+                    datasets: [{
+                        data: [formatData().data1, formatData().data2],
+                        backgroundColor: [
+                            gradient,
+                            "#e0e0e0"
+                        ]
+                    }]
+                };
+
+                var options = {
+                    cutoutPercentage: 80,
+                    responsive: false,
+                    events: [],
+                    customLabel: calculatePercentage() + '%',
+                    customLabelColor: '#666666'
+                };
+
+                /**
+                 * Chart global config
+                 */
+                var centerLabelPlugin = {
+                    beforeDraw: function(chart) {
+                        if(chart.config.type === 'doughnut') {
+                            var width = chart.chart.width;
+                            var height = chart.chart.height;
+                            var ctx = chart.chart.ctx;
+
+                            ctx.restore();
+                            var fontSize = (height / 70).toFixed(2);
+                            ctx.font = fontSize + "em sans-serif";
+                            ctx.textBaseline = "middle";
+
+                            if(chart.config.options.customLabelColor) {
+                                ctx.fillStyle = chart.config.options.customLabelColor;
+                            }
+
+                            var text = chart.config.options.customLabel;
+                            var textX = Math.round((width - ctx.measureText(text).width) / 2);
+                            var textY = height / 2;
+
+                            ctx.fillText(text, textX, textY);
+                            ctx.save();
+                        }
+                    }
+                };
+                Chart.pluginService.register(centerLabelPlugin);
+
+                console.log('Doughnut data: ' + scope.data1 + ',' + scope.data2);
+
+                var doughnutChart = new Chart(element, {
+                    type: 'doughnut',
+                    data: data,
+                    options: options
+                });
+
+                scope.$on('updateDoughnutChart', function() {
+                    console.log('Doughnut data: ' + scope.data1 + ',' + scope.data2);
+
+                    doughnutChart.data.datasets[0].data = [formatData().data1, formatData().data2];
+                    doughnutChart.options.customLabel = calculatePercentage() + '%';
+                    doughnutChart.update();
+                });
+
+                // Format data to make sure the doughnut chart looks correct
+                function formatData() {
+                    var data1 = scope.data1;
+                    var data2 = scope.data2;
+
+                    // Avoid case that the doughnut will be gone if the second data is 0. i.e. 0/0
+                    if(data1 === 0 && data2 === 0) {
+                        data2 = 1;
+                    } else {
+                        data1 = data1/data2;
+                        data2 = (data2-scope.data1)/data2;
+                    }
+
+                    return {
+                        data1: data1,
+                        data2: data2
+                    };
+                }
+
+                function calculatePercentage() {
+                    var num1 = scope.data1;
+                    var num2 = scope.data2;
+
+                    if(num2 === 0) {
+                        return 0;
+                    } else {
+                        return Math.floor(100* num1/num2);
+                    }
+                }
+            }
+        };
+    }
+})();
+
+/*
+    Emma : Common Filtering mechanism added
+    Date : 06/07/2019
+*/
+
+(function() {
+    'use strict';
+
+    angular.module('territoryApp')
+        .directive('goalActivityFilter', directiveFn);
+
+    function directiveFn() {
+        var controller = ['$scope', 'cyclePlanService','accountService', 'territoryService', 'userService', 'reportUtil',
+            function($scope, cyclePlanService,accountService, territoryService, userService, reportUtil) {
+                var gfilter = this;
+
+                function initialize() {
+                    // data collection
+                    gfilter.territories = [];
+                    gfilter.selectedTerritory = null;
+                    getTerritories();
+                }
+
+                gfilter.territoryUpdate = function() {
+                    if(gfilter.selectedTerritory && gfilter.selectedTerritory.Name) {
+                        var territoryName = gfilter.selectedTerritory.Name.value
+                        cyclePlanService.getCyclePlanByTerritory(territoryName).then(function(cyclePlanResp) {
+                            var cyclePlans = cyclePlanResp.data || [];
+                            if (angular.isArray(cyclePlans) && cyclePlans.length > 0) {
+                                var cyclePlan = cyclePlans[0];
+                                var userIds = [cyclePlan.OwnerId.value];
+                                userService.fetchUserByIds(userIds).then(function(userResp){
+                                    if (userResp && userResp.data && userResp.data[0]) {
+                                        var userItem = userResp.data[0];
+                                        gfilter.repName = userItem.Name.display;
+                                        gfilter.cyclePlanName = cyclePlan.Name.value;
+                                        gfilter.cyclePlanStartDate = new Intl.DateTimeFormat('en-US').format(new Date(cyclePlan.Start_Date_vod__c.value));
+                                        gfilter.cyclePlanEndDate = new Intl.DateTimeFormat('en-US').format(new Date(cyclePlan.End_Date_vod__c.value));
+                                        $scope.territorySelected({
+                                            cyclePlan: cyclePlan
+                                        });
+                                    }
+                                });
+                            }
+                        });
+                    }
+                }
+
+                /**
+                 *  Private functions
+                 */
+                function getTerritories() {
+                    var userTerritories = territoryService.getUserTerritories();
+                    var allTerritories = territoryService.getAllTerritories();
+
+                    var territories = [];
+                    angular.forEach(userTerritories, function(uTerritory) {
+                        if(uTerritory.TerritoryId) {
+                            var userTerritoryId = uTerritory.TerritoryId.value;
+                            var foundTerritory = _.find(allTerritories, function(territory) {
+                                return territory.Id && territory.Id.value === userTerritoryId
+                            });
+
+                            if(foundTerritory) {
+                                territories.push(foundTerritory);
+                            }
+                        }
+                    });
+
+                    angular.forEach(userTerritories, function(uTerritory) {
+                        if(uTerritory.TerritoryId) {
+                            var userTerritoryId = uTerritory.TerritoryId.value;
+                            angular.forEach(allTerritories, function(eachTerritory) {
+                                if(eachTerritory.ParentTerritoryId && eachTerritory.ParentTerritoryId.value === userTerritoryId) {
+                                    territories.push(eachTerritory);
+                                }
+                            });
+                        }
+                    });
+
+                    var territoryNames = [];
+                    angular.forEach(territories, function(territory) {
+                        if(territory.Name) {
+                            territoryNames.push(territory.Name.value);
+                        }
+                    });
+                    cyclePlanService.getCyclePlanByTerritoryNames(territoryNames).then(function(cyclePlanResp){
+                        if (cyclePlanResp && cyclePlanResp.data) {
+                            var matchedCyclePlanList = cyclePlanResp.data || [];
+                            var filteredTerritories = [];
+                            angular.forEach(territories, function(territoryItem) {
+                                var matchedCyclePlan = _.find(matchedCyclePlanList, function(cyclePlanItem) { return cyclePlanItem.Territory_vod__c.value === territoryItem.Name.value});
+                                if (matchedCyclePlan) {
+                                    filteredTerritories.push(territoryItem);
+                                }
+                            });
+                            filteredTerritories = reportUtil.sortByValue(filteredTerritories, 'Name');
+                            gfilter.territories = filteredTerritories;
+                            if (filteredTerritories.length > 0) {
+                                gfilter.selectedTerritory = filteredTerritories[0];
+                                gfilter.territoryUpdate();
+                            }
+                        }
+                    });
+                }
+
+                initialize();
+            }];
+
+        return {
+            templateUrl: 'views/goal-activity-filter.html',
+            restrict: 'E',
+            scope: {
+                territorySelected: '&'
+            },
+            controller: controller,
+            controllerAs: 'gfilter'
+        };
+    }
+})();
+
+/*
+    Emma : Added a new "GoalActivityController"
+    Date : 06/05/2019
+*/
+(function() {
+    'use strict';
+
+    angular.module('territoryApp')
+        .controller('GoalActivityController', ['$scope', '$timeout', '$q', 'userService',
+            'territoryService', 'cyclePlanService','accountService', 'cycleProductService', 'productMatrixService', 'reportUtil', 'messageService', 'labelService', GoalActivityController]);
+
+    function GoalActivityController($scope, $timeout, $q, userService,
+                                    territoryService, cyclePlanService, accountService, cycleProductService, productMatrixService, reportUtil, messageService, labelService) {
+        var goal = this;
+        var veevaUtil = new window.VeevaUtilities();
+
+        goal.cyclePlanTargets = [];
+        goal.cyclePlanTargetIds = [];
+        goal.cyclePlanChannelIds = [];
+        goal.cyclePlanChannels = [];
+        goal.cyclePlanProducts = [];
+		goal.selectedMasterIds = [];
+		
+
+        // Section toggle flag
+        goal.allReady = false;
+		goal.masterIds = [];
+
+		goal.accounts = [];
+		goal.allAccounts = [];
+		
+        // Chart data storage
+        goal.cpdGoalBySpecialty = {
+            name: "CPD Goal By Specialty",
+            labels: [""],
+            data: [[0],[0]]
+        };
+        goal.cpdGoalByTier = {
+            name: "CPD Goal By Tier",
+            labels: [""],
+            data: [[0],[0]]
+        };
+
+        // Static data
+        var currentUser = userService.getCurrentUser();
+
+        // Promises 
+        var territoryDataDeferred = $q.defer();
+
+        var allPromises = [ 
+            territoryDataDeferred.promise
+        ];
+
+        $scope.$emit('reportLanded');
+        territoryService.fetchAllTerritories().then(function() {
+            territoryService.fetchUserTerritories(currentUser.Id).then(function() {
+				accountService.getAllAccounts().then(function(resp) {
+                    goal.allAccounts = resp.data;
+                });
+
+				territoryDataDeferred.resolve();                
+            });
+        });
+
+        $q.all(allPromises).then(function() {
+            goal.allReady = true;
+        });
+
+		goal.accountDataUpdate = function(accounts) {
+			goal.accounts = accounts;
+        };
+        /**
+         * It's better to filter the data but no fetch data from DB each time
+         */
+        goal.territorySelected = function(cyclePlan) {
+            goal.cyclePlan = cyclePlan;
+            var cyclePlanIds = [];
+            cyclePlanIds.push(goal.cyclePlan.Id.value);
+			if (cyclePlanIds && cyclePlanIds.length > 0)  {
+				cyclePlanService.fetchCyclePlanTargetData(cyclePlanIds).then(function(cyclePlanTargetResp) {
+                    var cyclePlanTargets = cyclePlanTargetResp.data || [];
+                    goal.cyclePlanTargets = cyclePlanTargets;
+					
+                    if (cyclePlanTargets && angular.isArray(cyclePlanTargets) && cyclePlanTargets.length > 0) {
+                        var cyclePlanTargetIds = _.map(cyclePlanTargets, function(item){ return item.Id.value;});
+                        
+                        cyclePlanService.fetchCyclePlanChannels(cyclePlanTargetIds).then(function(cyclePlanChannelResp) {
+                            var cyclePlanChannels = cyclePlanChannelResp.data || [];
+                            goal.cyclePlanChannels = cyclePlanChannels;
+
+                            if (cyclePlanChannels && angular.isArray(cyclePlanChannels) && cyclePlanChannels.length > 0) {
+                                var cyclePlanChannelIds = _.map(cyclePlanChannels, function(item){ return item.Id.value;});
+                
+                                cyclePlanService.fetchCyclePlanProducts(cyclePlanChannelIds).then(function(channelResp) {
+                                    var cyclePlanProducts = channelResp.data || [];
+                                    goal.cyclePlanProducts = cyclePlanProducts;
+
+                                    updateCPDGoal();
+                                    updateCPDForGoalTieredTargets();
+                                    updateSpecialtyChartData();
+                                });
+                            }
+                        });
+                    }
+                });
+			}
+        };
+
+         //Emma: Update Specialty Bar chart
+        function updateSpecialtyChartData() {
+			
+			var TargetIdToSpecialityMap = {};
+			var SpecialityToGoalMap = {};
+			var TargetIdToGoalMap = {};
+			var cyclePlanTargetIds = [];
+			var channelIds = [];
+			angular.forEach(goal.cyclePlanTargets, function(item) {
+				var accId = item.Target_vod__c.value;
+				goal.masterIds.push(item.Target_vod__c.value);		
+				angular.forEach(goal.allAccounts , function(acc) {
+					if (acc.Id.value === accId)
+					{
+						goal.accounts.push(acc);
+						TargetIdToSpecialityMap[item.Id.value] = acc.Specialty_1_vod__c.display;	
+									
+					}
+					
+						
+				});
+			});
+			
+			cyclePlanTargetIds = _.map(goal.cyclePlanTargets, function(item){ return item.Id.value;});
+			
+			angular.forEach(cyclePlanTargetIds , function(cpt) {
+				var localgoal = 0;
+				angular.forEach(goal.cyclePlanChannels, function(cpc) {
+					if(cpt === cpc.Cycle_Plan_Target_vod__c.value)
+					{
+						var cyclePlanChannelId = cpc.Id.value;
+						angular.forEach(goal.cyclePlanProducts, function(cpp) {
+							if(cyclePlanChannelId === cpp.Cycle_Plan_Channel_vod__c.value)
+							{
+								localgoal = localgoal + reportUtil.getGoal(cpp);
+							}
+						});
+					}
+				});
+				TargetIdToGoalMap[cpt]=localgoal;
+			});
+			
+			Object.keys(TargetIdToGoalMap).forEach(function(key) {
+				var localgoal = TargetIdToGoalMap[key];
+				Object.keys(TargetIdToSpecialityMap).forEach(function(target) {
+					if(target === key)
+					{
+						if(!SpecialityToGoalMap[TargetIdToSpecialityMap[target]])
+						{
+							SpecialityToGoalMap[TargetIdToSpecialityMap[target]] = 0;
+						}
+						var value = SpecialityToGoalMap[TargetIdToSpecialityMap[target]];
+						SpecialityToGoalMap[TargetIdToSpecialityMap[target]] = value + localgoal;
+					}
+				});
+			});
+			
+			var sumDenominator = reportUtil.sumDenominator(goal.cyclePlan);
+			var chartData = [];
+            var dataAverage = [];
+            var dataGoal = [];
+            var dataLabels = [];
+			Object.keys(SpecialityToGoalMap).forEach(function(key, i) {
+				dataAverage[i] = 0;
+				dataGoal[i] = (SpecialityToGoalMap[key]/sumDenominator).toFixed(2);
+                dataLabels[i] = reportUtil.renderBarCharLabel(key, dataGoal[i]);
+			});
+			
+			chartData.push(dataAverage);
+            chartData.push(dataGoal);
+			
+			var newData = {
+				labels: dataLabels,
+				data: chartData
+            };
+            
+            goal.cpdGoalBySpecialty = _.extendOwn(goal.cpdGoalBySpecialty, newData);
+            $timeout(function() {
+                $scope.$broadcast('updateBarChart');
+            });
+        }
+
+         //Emma: Update Tier Bar chart
+        function updateTieredChartData(tieredGroupMap, sumDenominator) {
+            if (tieredGroupMap) {
+                var chartData = [];
+                var dataAverage = [];
+                var dataFrequency = [];
+                var dataLabels = [];
+                var tieredGroupMapArray = [];
+                Object.keys(tieredGroupMap).forEach(function(key) {
+                    tieredGroupMapArray.push({name:key, goal: tieredGroupMap[key]});
+                });
+                var sortedArray = _.sortBy(tieredGroupMapArray, 'name');
+
+                angular.forEach(sortedArray, function(item, i) {
+                    dataAverage[i] = 0;
+                    dataFrequency[i] = (item.goal / sumDenominator).toFixed(2);
+                    dataLabels[i] = reportUtil.renderBarCharLabel(item.name, dataFrequency[i]);
+                });
+
+                chartData.push(dataAverage);
+                chartData.push(dataFrequency);
+
+                var newData = {
+                    labels: dataLabels,
+                    data: chartData
+                };
+                goal.cpdGoalByTier = _.extendOwn(goal.cpdGoalByTier, newData);
+                $timeout(function() {
+                    $scope.$broadcast('updateBarChart2');
+                });
+            }
+        }
+
+        //Emma: Sum of all Goals coming from GoalFilter Function divided by CPDDenominator
+        function updateCPDGoal() {
+            var result = 0;
+            
+            var totalGoal = 0;
+            var cyclePlanProducts = goal.cyclePlanProducts;
+            if (cyclePlanProducts && angular.isArray(cyclePlanProducts)) {
+                angular.forEach(cyclePlanProducts, function(item) {
+                    var goal = 0;
+                    if (item.Activity_Goal_Edit_vod__c.value && !_.isNull(item.Activity_Goal_Edit_vod__c.value) && _.isNumber(item.Activity_Goal_Edit_vod__c.value)) {
+                        goal = item.Activity_Goal_Edit_vod__c.value;
+                    } else if (item.Product_Activity_Goal_vod__c.value && !_.isNull(item.Product_Activity_Goal_vod__c.value) && _.isNumber(item.Product_Activity_Goal_vod__c.value)) {
+                        goal = item.Product_Activity_Goal_vod__c.value;
+                    }
+                    totalGoal += goal;
+                });
+            }
+
+            var sumDenominator = reportUtil.sumDenominator(goal.cyclePlan);
+            if (sumDenominator != 0) {
+                result = (totalGoal / sumDenominator).toFixed(2);
+            }
+            
+            goal.totalCall = result;
+        }
+
+        //Emma: Sum of all Goals coming from GoalFilter Function for only Tiered Targeted Accounts divided by CPDDenominator
+        function updateCPDForGoalTieredTargets() {
+            goal.cpdForTieredTarget = 0;
+            if (goal.cyclePlan && goal.cyclePlanTargets && goal.cyclePlanChannels && goal.cyclePlanProducts) {
+                var cycleProductIds = [];
+                angular.forEach(goal.cyclePlanProducts, function(item) {
+                    var cycleProductId = item.Cycle_Product_vod__c.value;
+                    if (cycleProductIds.indexOf(cycleProductId) < 0) {
+                        cycleProductIds.push(cycleProductId);
+                    }
+                });
+
+                var cycleProductIdToProductIdMap = {};
+                var productIds = [];
+                cycleProductService.getCycleProducts(cycleProductIds).then(function(resp) {
+                    var productArray = resp.data || [];
+                    
+                    if (angular.isArray(productArray) && productArray.length > 0) {
+                        var productId = "";
+                        angular.forEach(productArray, function(item) {
+                            productId = item.Product_vod__c.value;
+                            if (productIds.indexOf(productId) < 0) {
+                                productIds.push(productId);
+                            }
+                            cycleProductIdToProductIdMap[item.Id.value] = productId;
+                        });
+                    }
+
+                    var productAccountMetricsKeys = [];
+                    var productAccountMetricsMap = {};
+                    productMatrixService.getProductMatrixes(productIds).then(function(pmResp) {
+                        var productMetricsArray = pmResp.data || [];
+    
+                        if (angular.isArray(productMetricsArray) && productMetricsArray.length > 0) {
+                            //  'Tier_Rating_BMS_US__c', 'Products_vod__c', 'Account_vod__c'
+                            angular.forEach(productMetricsArray, function(pm) {
+                                if(pm.Tier_Rating_BMS_US__c && pm.Tier_Rating_BMS_US__c.value) {
+                                    productAccountMetricsKeys.push(pm.Products_vod__c.value + pm.Account_vod__c.value);
+                                    productAccountMetricsMap[pm.Products_vod__c.value + pm.Account_vod__c.value] = pm.Tier_Rating_BMS_US__c.display;
+                                }
+                            });
+                        }
+    
+                        // Map the product
+                        var targetAccountMap = {};
+                        angular.forEach(goal.cyclePlanTargets, function(cpt) {
+                            targetAccountMap[cpt.Id.value] = cpt.Target_vod__c.value;
+                        });
+        
+                        var channelAccountMap = {};
+                        angular.forEach(goal.cyclePlanChannels, function(c) {
+                            channelAccountMap[c.Id.value] = targetAccountMap[c.Cycle_Plan_Target_vod__c.value];
+                        });
+        
+                        var productIdAccountIdGoalMap = {};
+                        var loopProductId = "";
+                        var loopAccountId = "";
+                        var loopGoal = 0;
+                        angular.forEach(goal.cyclePlanProducts, function(cycleProduct) {
+                            loopProductId = cycleProductIdToProductIdMap[cycleProduct.Cycle_Product_vod__c.value];
+                            loopAccountId = channelAccountMap[cycleProduct.Cycle_Plan_Channel_vod__c.value];
+                            if (loopProductId && loopAccountId) {
+                                loopGoal = productIdAccountIdGoalMap[(loopProductId + loopAccountId)];
+                                if (!loopGoal) {
+                                    loopGoal = 0;
+                                }
+                                loopGoal += reportUtil.getGoal(cycleProduct);
+                                productIdAccountIdGoalMap[(loopProductId + loopAccountId)] = loopGoal;
+                            }
+                        });
+        
+                        var totalGoal = 0;
+                        var tieredGroupMap = {};
+                        Object.keys(productIdAccountIdGoalMap).forEach(function(key) {
+                            if (_.contains(productAccountMetricsKeys, key)) {
+                                var goal = productIdAccountIdGoalMap[key];
+                                var tieredKey = productAccountMetricsMap[key];
+                                var tieredValue = tieredGroupMap[tieredKey];
+                                if (!tieredValue) {
+                                    tieredValue = 0;
+                                }
+                                totalGoal += goal;
+                                tieredValue += goal;
+                                tieredGroupMap[tieredKey] = tieredValue;
+
+                            }
+                        });
+                        var sumDenominator = reportUtil.sumDenominator(goal.cyclePlan);
+                        var result = 0;
+                        if (sumDenominator != 0 ) {
+                            result = (totalGoal / sumDenominator).toFixed(2);
+                        }
+                        goal.cpdForTieredTarget = result;
+                        updateTieredChartData(tieredGroupMap, sumDenominator);
+                    });
+                });
+            }
+        }
+    }
+})();
+
+(function() {
+    'use strict';
+
+    angular.module('territoryApp')
+        .controller('CallActivityController', ['$scope', '$timeout', '$q', 'userService', 'accountService', 'callService',
+            'territoryService', 'cyclePlanService', 'productMatrixService', 'reportUtil', 'messageService', 'labelService', 'endpoints','cycleProductService', CallActivityController]);
+
+    function CallActivityController($scope, $timeout, $q, userService, accountService, callService,
+                                    territoryService, cyclePlanService, productMatrixService, reportUtil, messageService, labelService, endpoints, cycleProductService) {
+        var call = this;
+        var veevaUtil = new window.VeevaUtilities();
+
+        // Data models
+        call.calls = [];
+        call.accounts = [];
+
+        // Section toggle flag
+        call.mainDataReady = false;
+        call.allReady = false;
+        call.mainView = true;
+        call.territoryGoalMap = {};
+        call.territoryCallMap = {};
+        call.currentTerritory = "";
+        call.cycleProductIdMap = {};
+        call.accountMap = {};
+
+        call.productAccountMetricsKeys = [];
+        call.productAccountMetricsMap = {};
+
+        call.productAccountMetricsHasTierKeys = [];
+        call.productAccountMetricsHasTierMap = {};
+
+        call.goalCount = 10;
+        call.callCount = 10;
+
+        call.totalCallSubmitted = 1;
+        call.totalPlannedGoal = 1;
+        call.performanceFinished = 1;
+        call.performanceTotal = 1;
+        call.goalAttainmentFinished = 1;
+        call.goalAttainmentTotal = 1;
+
+        call.overCalls = 0;
+        call.totalCallsRemaining = 0;
+        call.tieredCallsRemaining = 0;
+
+        // Chart data storage
+        call.goalAttainmentBySpecialty = {
+            name: "Goal Attainment By Specialty",
+            labels: [""],
+            data: [[0],[0]]
+        };
+        call.goalAttainmentByTier = {
+            name: "Goal Attainment By Tier",
+            labels: [""],
+            data: [[0],[0]]
+        };
+        
+        // Static data
+        var currentUser = userService.getCurrentUser();
+
+        // Promises
+        var callDataDeferred = $q.defer();
+        var productDataDeferred = $q.defer();
+        var accountDataDeferred = $q.defer();
+
+        var mainDataPromises = [
+            callDataDeferred.promise,
+            productDataDeferred.promise,
+            accountDataDeferred.promise
+        ];
+
+        $scope.$emit('reportLanded');
+        territoryService.fetchAllTerritories().then(function() {
+            territoryService.fetchUserTerritories(currentUser.Id).then(function() {
+
+                cycleProductService.cycleProductAll().then(function(resp3) {
+                    var cycleProductIdMap = {};
+                    var productArray = resp3.data || [];
+                    
+                    if (angular.isArray(productArray) && productArray.length > 0) {
+                        angular.forEach(productArray, function(item) {
+                            cycleProductIdMap[item.Id.value] = item.Product_vod__c.value;
+                        });
+                    }
+                    call.cycleProductIdMap = cycleProductIdMap;
+                    callDataDeferred.resolve();
+                });
+            });
+        });
+
+        accountService.getAllAccounts().then(function(resp) {
+            var accountMap = {};
+            angular.forEach(resp.data, function(item) {
+                accountMap[item.Id.value] = item;
+            });
+            call.accountMap = accountMap;
+            accountDataDeferred.resolve();
+        });
+
+        productMatrixService.getProductMatrix().then(function(pmResp) {
+            var productMetricsArray = pmResp.data || [];
+            var productAccountMetricsKeys = [];
+            var productAccountMetricsMap = {};
+
+            if (angular.isArray(productMetricsArray) && productMetricsArray.length > 0) {
+                angular.forEach(productMetricsArray, function(pm) {
+                    productAccountMetricsKeys.push(pm.Products_vod__c.value + pm.Account_vod__c.value);
+                    if (pm.Tier_Rating_BMS_US__c && pm.Tier_Rating_BMS_US__c.display) {
+                        call.productAccountMetricsHasTierKeys.push(pm.Products_vod__c.value + pm.Account_vod__c.value);
+                        call.productAccountMetricsHasTierMap[pm.Products_vod__c.value + pm.Account_vod__c.value] = pm.Tier_Rating_BMS_US__c.display;
+                    }
+                    var tierDisplay = pm.Tier_Rating_BMS_US__c ? pm.Tier_Rating_BMS_US__c.display : "N/A";
+                    productAccountMetricsMap[pm.Products_vod__c.value + pm.Account_vod__c.value] = tierDisplay;
+                });
+            }
+            call.productAccountMetricsKeys = productAccountMetricsKeys;
+            call.productAccountMetricsMap = productAccountMetricsMap;
+            productDataDeferred.resolve();
+        });
+
+        call.territorySelected = function(cyclePlan) {
+            call.cyclePlan = cyclePlan;
+            var cyclePlanIds = [];
+            cyclePlanIds.push(call.cyclePlan.Id.value);
+			if (cyclePlanIds && cyclePlanIds.length > 0)  {
+                cyclePlanService.fetchCyclePlanTargetData(cyclePlanIds).then(function(cyclePlanTargetResp) {
+                    var cyclePlanTargets = cyclePlanTargetResp.data || [];
+                    call.cyclePlanTargets = cyclePlanTargets;
+                    if (cyclePlanTargets && angular.isArray(cyclePlanTargets) && cyclePlanTargets.length > 0) {
+                        var cyclePlanTargetIds = _.map(cyclePlanTargets, function(item){ return item.Id.value;});
+                        cyclePlanService.fetchCyclePlanChannels(cyclePlanTargetIds).then(function(cyclePlanChannelResp) {
+                            var cyclePlanChannels = cyclePlanChannelResp.data || [];
+                            call.cyclePlanChannels = cyclePlanChannels;
+
+                            if (cyclePlanChannels && angular.isArray(cyclePlanChannels) && cyclePlanChannels.length > 0) {
+                                var cyclePlanChannelIds = _.map(cyclePlanChannels, function(item){ return item.Id.value;});
+
+                                cyclePlanService.fetchCyclePlanProducts(cyclePlanChannelIds).then(function(channelResp) {
+                                    var cyclePlanProducts = channelResp.data || [];
+                                    call.cyclePlanProducts = cyclePlanProducts;
+
+                                    var cycleProductIdMap = call.cycleProductIdMap;
+                                    angular.forEach(call.cyclePlanProducts, function(item){
+                                        item.productId = cycleProductIdMap[item.Cycle_Product_vod__c.value];
+                                    });
+
+                                    var accountIds = _.map(cyclePlanTargets, function(item){ return item.Target_vod__c.value;});
+                                    callService.fetchCallData(accountIds, call.cyclePlan).then(function(resp) {
+                                        var calls = resp.data || [];
+                                        call.calls = calls;
+
+                                        fillAndFilter();
+                                        renderGoalDonutForCycle();
+                                        renderCallPlanAttainmentTieredTargetDonut();
+                                        $timeout(function() {
+                                            $scope.$broadcast('updateDoughnutChart');
+                                        });
+
+                                        renderCallPlanAttainmentBySpecialtyBarChar();
+                                        renderCallPlanAttainmentByTierBarChar();
+                                        $timeout(function() {
+                                            $scope.$broadcast('updateBarChart');
+                                            $scope.$broadcast('updateBarChart2');
+                                        });
+                                    });
+                                });
+                            }
+                        });
+                    }
+                });
+            }
+        };
+
+         // Emma: Rendering the whole Page by calling the services module
+        $q.all(mainDataPromises).then(function() {
+            call.allReady = true;
+            call.mainDataReady = true;
+        });
+
+        call.getDoughnutStyle = function() {
+            return {
+                width: '120px',
+                height: '120px',
+                display: 'inline-block',
+                margin: 'auto'
+            };
+        };
+
+        call.getAverageCallPerAccount = function() {
+            return Math.floor(Math.random() * 100) + 30;
+        };
+
+        function fillAndFilter() {
+            var targetAccountMap = {};
+            if (call.cyclePlanTargets && angular.isArray(call.cyclePlanTargets) && call.cyclePlanTargets.length > 0) {
+
+                angular.forEach(call.cyclePlanTargets, function(item) {
+                    targetAccountMap[item.Id.value] = item.Target_vod__c;
+                });
+            }
+            var productAccountKeyArray = [];
+            if (call.cyclePlanChannels && angular.isArray(call.cyclePlanChannels) && call.cyclePlanChannels.length > 0
+                && call.cyclePlanProducts && angular.isArray(call.cyclePlanProducts) && call.cyclePlanProducts.length > 0) {
+
+                var channelTargetMap = {};
+                angular.forEach(call.cyclePlanChannels, function(item) {
+                    channelTargetMap[item.Id.value] = item.Cycle_Plan_Target_vod__c.value;
+                });
+
+                angular.forEach(call.cyclePlanProducts, function(item) {
+                    var cyclePlanTargetId = channelTargetMap[item.Cycle_Plan_Channel_vod__c.value];
+                    item.Account = targetAccountMap[cyclePlanTargetId];
+                    var key = item.productId + item.Account.value;
+                    if (!productAccountKeyArray[key]) {
+                        productAccountKeyArray.push(key);
+                    }
+                });
+            }
+
+            if (call.calls && angular.isArray(call.calls) && call.calls.length > 0) {
+                var filteredCalls = _.filter(call.calls, function(item, i) {
+                    return item.Product_vod__c && item.Product_vod__c.value && item.Account_vod__c && item.Account_vod__c.value && _.contains(productAccountKeyArray, item.Product_vod__c.value + item.Account_vod__c.value);
+                });
+                call.calls = filteredCalls;
+            } else {
+                call.calls = [];
+            }
+            
+        }
+
+        function renderGoalDonutForCycle() {
+            var goalMap = {};
+            angular.forEach(call.cyclePlanProducts, function(item) {
+                var productAccountKey = item.productId + item.Account.value;
+                var totalGoal = goalMap[productAccountKey];
+                if (!totalGoal || typeof totalGoal === "undefined") {
+                    totalGoal = 0;
+                }
+                goalMap[productAccountKey] = totalGoal + reportUtil.getGoal(item);
+            });
+
+            var callMap = {};
+            angular.forEach(call.calls, function(item) {
+                var productAccountKey = item.Product_vod__c.value + item.Account_vod__c.value;
+                var totalCall = callMap[productAccountKey];
+                if (!totalCall || typeof totalCall === "undefined") {
+                    totalCall = 0;
+                }
+                callMap[productAccountKey] = totalCall + 1;
+            });
+
+            renderTotalCallVolumeDonut(goalMap, callMap);
+            renderCallPlanAttainmentDonut(goalMap, callMap);
+        }
+
+        function renderTotalCallVolumeDonut(goalMap, callMap) {
+            var callCount = 0;
+            var goalCount = 0;
+            var overcalls = 0;
+            Object.keys(goalMap).forEach(function(key) {
+                var goalValue = goalMap[key];
+                var callValue = 0;
+                if (callMap[key]) {
+                    callValue = callMap[key];
+                }
+                callCount += callValue;
+                goalCount += goalValue;
+                
+                
+                if (callValue > goalValue) {
+                    overcalls = overcalls + (callValue - goalValue);
+                }
+            });
+
+            var totalCallVolumeArr = reportUtil.resetNumeratorAndDenominator(callCount, goalCount);
+            call.totalCallSubmitted = totalCallVolumeArr[0];
+            call.totalPlannedGoal = totalCallVolumeArr[1];
+            call.overCalls = overcalls;
+        }
+
+
+        function renderCallPlanAttainmentDonut(goalMap, callMap) {
+            var callSubmittedCount = 0;
+            var goalCount = 0;
+            var remaining = 0;
+            Object.keys(goalMap).forEach(function(key) {
+                var goalValue = goalMap[key];
+                var callValue = 0;
+                if (callMap[key]) {
+                    callValue = callMap[key];
+                }
+
+                if (callValue < goalValue) {
+                    remaining = remaining + goalValue - callValue;
+                }
+                callSubmittedCount += Math.min(callValue, goalValue);
+                goalCount += goalValue;
+            });
+
+            var callPlanAttainmentArr = reportUtil.resetNumeratorAndDenominator(callSubmittedCount, goalCount);
+            call.performanceFinished = callPlanAttainmentArr[0];
+            call.performanceTotal = callPlanAttainmentArr[1];
+            call.totalCallsRemaining = remaining;
+        }
+
+        function renderCallPlanAttainmentTieredTargetDonut() {
+            var goalMap = {};
+            angular.forEach(call.cyclePlanProducts, function(item) {
+                var productAccountKey = item.productId + item.Account.value;
+                if (_.contains(call.productAccountMetricsHasTierKeys, productAccountKey)) {
+                    var totalGoal = goalMap[productAccountKey];
+                    if (!totalGoal) {
+                        totalGoal = 0;
+                    }
+                    goalMap[productAccountKey] = totalGoal + reportUtil.getGoal(item);
+                }
+            });
+
+            var callMap = {};
+            angular.forEach(call.calls, function(item) {
+                var productAccountKey = item.Product_vod__c.value + item.Account_vod__c.value;
+                if (_.contains(call.productAccountMetricsHasTierKeys, item.Product_vod__c.value + item.Account_vod__c.value)) {
+                    var totalCall = callMap[productAccountKey];
+                    if (!totalCall) {
+                        totalCall = 0;
+                    }
+                    callMap[productAccountKey] = totalCall + 1;
+                }
+            });
+            
+            var callCount = 0;
+            var goalCount = 0;
+            var remaining = 0;
+            Object.keys(goalMap).forEach(function(key) {
+                var goalValue = goalMap[key];
+                var callValue = 0;
+                if (callMap[key]) {
+                    callValue = callMap[key];
+                }
+                callCount += Math.min(callValue, goalValue);
+                goalCount += goalValue;
+                
+                if (callValue < goalValue) {
+                    remaining = remaining + goalValue - callValue;
+                }
+            });
+
+            var callPlanAttainmentTieredTargetArr = reportUtil.resetNumeratorAndDenominator(callCount, goalCount);
+            call.goalAttainmentFinished = callPlanAttainmentTieredTargetArr[0];
+            call.goalAttainmentTotal = callPlanAttainmentTieredTargetArr[1];
+            call.tieredCallsRemaining = remaining;
+        }
+
+        function renderCallPlanAttainmentBySpecialtyBarChar() {
+            var specialtyGoalMap = {};
+            angular.forEach(call.cyclePlanProducts, function(item) {
+                var account = call.accountMap[item.Account.value];
+                var specialtyName = account.Specialty_1_vod__c.display;
+                specialtyName = specialtyName ? specialtyName : "No Specialty";
+                var count = specialtyGoalMap[specialtyName];
+                if (!count) {
+                    count = 0;
+                }
+                specialtyGoalMap[specialtyName] = count + reportUtil.getGoal(item);
+            });
+
+            var specialtyCallMap = {};
+            angular.forEach(call.calls, function(item, i) {
+                var account = call.accountMap[item.Account_vod__c.value];
+                var specialtyName = account.Specialty_1_vod__c.display;
+                specialtyName = specialtyName ? specialtyName : "No Specialty";
+                var count = specialtyCallMap[specialtyName];
+                if (!count) {
+                    count = 0;
+                }
+                specialtyCallMap[specialtyName] = count + 1;
+            });
+            
+            var chartData = [];
+            var dataAverage = [];
+            var dataRatio = [];
+            var dataLabels = [];
+            
+            Object.keys(specialtyGoalMap).forEach(function(key, i) {
+                dataAverage.push(0);
+                var arr = reportUtil.resetNumeratorAndDenominator(specialtyCallMap[key], specialtyGoalMap[key], 1);
+                var callCount = arr[0];
+                var goalCount = arr[1];
+
+                dataRatio[i] = (callCount / goalCount).toFixed(2);
+                dataLabels[i] = reportUtil.renderBarCharPercentageLabel(key, dataRatio[i]);
+            });
+
+            chartData.push(dataAverage);
+            chartData.push(dataRatio);
+
+            var newData = {
+                labels: dataLabels,
+                data: chartData
+            };
+            call.goalAttainmentBySpecialty = _.extendOwn(call.goalAttainmentBySpecialty, newData);
+        }
+
+        function renderCallPlanAttainmentByTierBarChar() {
+            var productAccountMetricsMap = call.productAccountMetricsHasTierMap;
+            var tierGoalMap = {};
+            angular.forEach(call.cyclePlanProducts, function(item) {
+                var tierName = productAccountMetricsMap[item.productId + item.Account.value];
+                if (tierName) {
+                    var count = tierGoalMap[tierName];
+                    if (!count) {
+                        count = 0;
+                    }
+                    count += reportUtil.getGoal(item);
+                    if (count > 0) {
+                        tierGoalMap[tierName] = count;
+                    }
+                }
+            });
+            
+            var tierCallMap = {};
+            angular.forEach(call.calls, function(item) {
+                var tierName = productAccountMetricsMap[item.Product_vod__c.value + item.Account_vod__c.value];
+                if (tierName) {
+                    var count = tierCallMap[tierName];
+                    if (!count) {
+                        count = 0;
+                    }
+                    tierCallMap[tierName] = count + 1;
+                }
+            });
+            var chartData = [];
+            var dataAverage = [];
+            var dataRatio = [];
+            var dataLabels = [];
+
+            var tierGoalArray = [];
+            Object.keys(tierGoalMap).forEach(function(key) {
+                tierGoalArray.push({name:key, goal: tierGoalMap[key]});
+            });
+            var sortedArray = _.sortBy(tierGoalArray, 'name');
+
+            angular.forEach(sortedArray, function(item, i) {
+                dataAverage[i] = 0;
+
+                var arr = reportUtil.resetNumeratorAndDenominator(tierCallMap[item.name], item.goal, 1);
+                var callCount = arr[0];
+                var goalCount = arr[1];
+                var label = item.name ? item.name : "No Tier";
+
+                dataRatio[i] = (callCount / goalCount).toFixed(2);
+                dataLabels[i] = reportUtil.renderBarCharPercentageLabel(label, dataRatio[i]);
+            });
+
+            chartData.push(dataAverage);
+            chartData.push(dataRatio);
+
+            var newData = {
+                labels: dataLabels,
+                data: chartData
+            };
+            call.goalAttainmentByTier = _.extendOwn(call.goalAttainmentByTier, newData);
+        }
+
+        call.totalPlannedGoalF = function() {
+            return call.totalPlannedGoal;
+        }
+        call.totalCallSubmittedF = function() {
+            return call.totalCallSubmitted;
+        }
+        call.performanceFinishedF = function() {
+            return call.performanceFinished;
+        }
+        call.performanceTotalF = function() {
+            return call.performanceTotal;
+        }
+        call.goalAttainmentFinishedF = function() {
+            return call.goalAttainmentFinished;
+        }
+        call.goalAttainmentTotalF = function() {
+            return call.goalAttainmentTotal;
+        }
+    }
+})();
+
+(
+    function() {
+    'use strict';
+
+    angular.module('territoryApp')
+        .controller('MainCtrl', ['$scope', '$location', MainCtrl]);
+
+    function MainCtrl($scope, $location) {
+        var main = this;
+        var reports = [{
+            name: 'goalActivity'
+        }, {
+            name: 'submittedActivity'
+        }];
+        var accessibleReports = [];
+
+        initiateReport();
+
+        main.mainNavigation = true;
+
+        main.getAccessibleReports = function() {
+            return accessibleReports;
+        };
+
+        main.applyActiveStyle = function(index) {
+            if(main.activeReport.name === accessibleReports[index].name) {
+                return 'active';
+            }
+        };
+
+        main.switchReport = function(index) {
+            main.activeReport = accessibleReports[index];
+            $location.path('/' + main.activeReport.name);
+        };
+
+        main.goToMainNavigation = function() {
+            main.mainNavigation = true;
+            $scope.$broadcast('goToMainNavigation');
+        };
+
+        $scope.$on('goToDetailNavigation', function(event, data) {
+            main.detailViewTitle = data;
+            main.mainNavigation = false;
+        });
+
+        $scope.$on('reportLanded', function() {
+            main.reportLanded = true;
+        });
+
+        function initiateReport(name) {
+            if(reports.length) {
+                accessibleReports = reports;
+
+                if(name) {
+                    var foundActiveReport = _.find(accessibleReports, function(report) {
+                        return report.name === name;
+                    });
+                    if(foundActiveReport) {
+                        main.activeReport = foundActiveReport;
+                    } else {
+                        main.activeReport = accessibleReports[0];
+                    }
+                } else {
+                    main.activeReport = accessibleReports[0];
+                }
+
+                $location.path('/' + main.activeReport.name);
+            }
+        }
+    }
+}
+
+)();
+
+
+angular.module('territoryApp').run(['$templateCache', function($templateCache) {
+  'use strict';
+
+  $templateCache.put('views/bar-chart.html',
+    "<canvas id=\"barChart\"></canvas>"
+  );
+
+  $templateCache.put('views/bar-chart2.html',
+  "<canvas id=\"barChart2\"></canvas>"
+);
+
+  $templateCache.put('views/call-activity.html',
+    "<div ng-show=\"call.mainView\">\n" +
+    "    <goal-activity-filter ng-if=\"call.allReady\" territory-selected=\"call.territorySelected(cyclePlan)\" ></goal-activity-filter>\n" +
+    "\n" +
+    "    <div class=\"call-summary-section-1\">\n" +
+    "        <div class=\"table structure-table\">\n" +
+    "            <div class=\"cell oneThird section-container\">\n" +
+    "                <div class=\"section-body inline-block-container\">\n" +
+    "                    <div class=\"section-title1\">% Total Call Volume</div>\n" +
+    "                    <div class=\"section-subtitle\"># of Overcalls: {{call.overCalls}}</div>\n" +
+    "                    <div class=\"text-center\">\n" +
+    "                        <doughnut-chart ng-style=\"call.getDoughnutStyle()\" color1=\"#3384ff\" color2=\"#8b123a\"\n" +
+    "                                        data1=\"call.totalCallSubmittedF()\" data2=\"call.totalPlannedGoalF()\"></doughnut-chart>\n" +
+    "                    </div>\n" +
+    "                </div>\n" +
+    "            </div>\n" +
+    "            <div class=\"cell oneThird section-container\">\n" +
+    "                <div class=\"section-body inline-block-container\">\n" +
+    "                    <div class=\"section-title1\">% Call Plan Attainment</div>\n" +
+    "                    <div class=\"section-subtitle\">Total Calls Remaining: {{call.totalCallsRemaining}}</div>\n" +
+    "                    <div class=\"text-center\">\n" +
+    "                        <doughnut-chart ng-style=\"call.getDoughnutStyle()\" color1=\"#ff9900\" color2=\"#8b123a\"\n" +
+    "                                        data1=\"call.performanceFinishedF()\" data2=\"call.performanceTotalF()\"></doughnut-chart>\n" +
+    "                    </div>\n" +
+    "                </div>\n" +
+    "            </div>\n" +
+    "            <div class=\"cell oneThird section-container\">\n" +
+    "                <div class=\"section-body inline-block-container\">\n" +
+    "                    <div class=\"section-title1\">% Call Plan Attainment To Tiered Targets</div>\n" +
+    "                    <div class=\"section-subtitle\">Tiered Calls Remaining: {{call.tieredCallsRemaining}}</div>\n" +
+    "                    <div class=\"text-center\">\n" +
+    "                        <doughnut-chart ng-style=\"call.getDoughnutStyle()\" color1=\"#1f2e2e\" color2=\"#8b123a\"\n" +
+    "                                        data1=\"call.goalAttainmentFinishedF()\" data2=\"call.goalAttainmentTotalF()\"></doughnut-chart>\n" +
+    "                    </div>\n" +
+    "                </div>\n" +
+    "            </div>\n" +
+    "        </div>\n" +
+    "    </div>\n" +
+    "\n" +
+    "    <div class=\"call-summary-section-3\">\n" +
+    "        <div class=\"table structure-table\">\n" +
+    "            <div class=\"cell half section-container\">\n" +
+    "                <div class=\"section-title\">% Call Plan Attainment by Specialty</div>\n" +
+    "                <div class=\"section-body pd10\" ng-if=\"call.mainDataReady\">\n" +
+    "                    <bar-chart data=\"call.goalAttainmentBySpecialty.data\" labels=\"call.goalAttainmentBySpecialty.labels\"></bar-chart>\n" +
+    "                </div>\n" +
+    "            </div>\n" +
+    "            <div class=\"cell half section-container\">\n" +
+    "                <div class=\"section-title\">% Call Plan Attainment by Tier</div>\n" +
+    "                <div class=\"section-body pd10\" ng-if=\"call.mainDataReady\">\n" +
+    "                    <bar-chart2 data=\"call.goalAttainmentByTier.data\" labels=\"call.goalAttainmentByTier.labels\"></bar-chart>\n" +
+    "                </div>\n" +
+    "            </div>\n" +
+    "        </div>\n" +
+    "    </div>\n" +
+    "</div>\n" +
+    "\n"
+  );
+
+
+  $templateCache.put('views/goal-activity-filter.html',
+  "<div class=\"filter-section section-container\">\n" +
+  "    <div class=\"filterable-item\">\n" +
+  "        <select ng-options=\"territory.Name.display for territory in gfilter.territories\" ng-model=\"gfilter.selectedTerritory\"\n" +
+  "                ng-change=\"gfilter.territoryUpdate()\"></select>\n" +
+  "        <span class=\"icon fa fa-angle-down\"></span>\n" +
+  "    </div>\n" +
+  "    <div class=\"filterable-item\">\n" +
+  "                    <div>Rep Name: </div>\n" +
+  "                    <div>{{gfilter.repName}}</div>\n" +
+  "    </div>\n" +
+  "    <div class=\"filterable-item\">\n" +
+  "                    <div>Cycle Plan Name: </div>\n" +
+  "                    <div>{{gfilter.cyclePlanName}}</div>\n" +
+  "    </div>\n" +
+  "    <div class=\"filterable-item\">\n" +
+  "                    <div>Start Date: </div>\n" +
+  "                    <div>{{gfilter.cyclePlanStartDate}}</div>\n" +
+  "                    <div>End Date: </div>\n" +
+  "                    <div>{{gfilter.cyclePlanEndDate}}</div>\n" +
+  "    </div>\n" +
+  "</div>"
+);
+
+  $templateCache.put('views/goal-activity.html',
+  "    <goal-activity-filter ng-if=\"goal.allReady\" territory-selected=\"goal.territorySelected(cyclePlan)\" account-data-update=\"goal.accountDataUpdate(accounts)\" ></goal-activity-filter>\n" +
+  "\n" +
+  "    <div class=\"call-summary-section-1\">\n" +
+  "        <div class=\"table structure-table\">\n" +
+  "            <div class=\"cell half section-container\">\n" +
+  "                <div class=\"section-body inline-block-container\">\n" +
+  "                    <div class=\"section-title\">CPD Goal</div>\n" +
+  "                    <div class=\"summarize-digit\">{{goal.totalCall}}</div>\n" +
+  "                </div>\n" +
+  "            </div>\n" +
+  "            <div class=\"cell half section-container\">\n" +
+  "                <div class=\"section-body inline-block-container\">\n" +
+  "                    <div class=\"section-title\">CPD Goal for all Tiered Targets</div>\n" +
+  "                    <div class=\"summarize-digit\">{{goal.cpdForTieredTarget}}</div>\n" +
+  "                </div>\n" +
+  "            </div>\n" +
+  "        </div>\n" +
+  "    </div>\n" +
+  "\n" +
+  "    <div class=\"call-summary-section-3\">\n" +
+  "        <div class=\"table structure-table\">\n" +
+  "            <div class=\"cell half section-container\">\n" +
+  "                <div class=\"section-title\">CPD Goals by Specialty Group</div>\n" +
+  "                <div class=\"section-body pd10\">\n" +
+  "                    <bar-chart data=\"goal.cpdGoalBySpecialty.data\" labels=\"goal.cpdGoalBySpecialty.labels\"></bar-chart>\n" +
+  "                </div>\n" +
+  "            </div>\n" +
+  "            <div class=\"cell half section-container\">\n" +
+  "                <div class=\"section-title\">CPD Goals by HCP Brand Tier</div>\n" +
+  "                <div class=\"section-body pd10\">\n" +
+  "                    <bar-chart2 data=\"goal.cpdGoalByTier.data\" labels=\"goal.cpdGoalByTier.labels\"></bar-chart>\n" +
+  "                </div>\n" +
+  "            </div>\n" +
+  "        </div>\n" +
+  "    </div>\n" + 
+  "\n"
+  );
+}]);
